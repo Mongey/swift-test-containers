@@ -1,11 +1,11 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.1
 
 import PackageDescription
 
 let package = Package(
     name: "swift-test-containers",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v15)
     ],
     products: [
         .library(
@@ -13,9 +13,15 @@ let package = Package(
             targets: ["TestContainers"]
         )
     ],
+    dependencies: [
+        .package(url: "https://github.com/swiftlang/swift-subprocess.git", branch: "main")
+    ],
     targets: [
         .target(
-            name: "TestContainers"
+            name: "TestContainers",
+            dependencies: [
+                .product(name: "Subprocess", package: "swift-subprocess")
+            ]
         ),
         .testTarget(
             name: "TestContainersTests",
@@ -23,4 +29,3 @@ let package = Package(
         )
     ]
 )
-

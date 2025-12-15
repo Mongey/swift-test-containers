@@ -12,8 +12,6 @@ public func withContainer<T>(
     let id = try await docker.runContainer(request)
     let container = Container(id: id, request: request, docker: docker)
 
-    let cleanup: () -> Void = { _ = Task { try? await container.terminate() } }
-
     return try await withTaskCancellationHandler {
         do {
             try await container.waitUntilReady()
@@ -25,6 +23,6 @@ public func withContainer<T>(
             throw error
         }
     } onCancel: {
-        cleanup()
+        Task { try? await container.terminate() }
     }
 }

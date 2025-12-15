@@ -1,6 +1,6 @@
 import Foundation
 
-public actor DockerClient {
+public struct DockerClient: Sendable {
     private let dockerPath: String
     private let runner = ProcessRunner()
 

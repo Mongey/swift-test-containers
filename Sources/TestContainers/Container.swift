@@ -43,10 +43,9 @@ public actor Container {
                 return text.contains(needle)
             }
         case let .logMatches(pattern, timeout, pollInterval):
-            // Compile regex once before polling loop for efficiency
-            let regex: Regex<Substring>
+            // Validate regex pattern early
             do {
-                regex = try Regex(pattern)
+                _ = try Regex(pattern)
             } catch {
                 throw TestContainersError.invalidRegexPattern(pattern, underlyingError: error.localizedDescription)
             }
@@ -55,8 +54,10 @@ public actor Container {
                 timeout: timeout,
                 pollInterval: pollInterval,
                 description: "container logs to match regex '\(pattern)'"
-            ) { [docker, id] in
+            ) { [docker, id, pattern] in
                 let text = try await docker.logs(id: id)
+                // Regex is compiled each iteration but pattern validation happened above
+                let regex = try! Regex(pattern)
                 return text.contains(regex)
             }
         case let .tcpPort(containerPort, timeout, pollInterval):
