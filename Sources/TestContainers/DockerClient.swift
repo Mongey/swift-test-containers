@@ -72,6 +72,13 @@ public struct DockerClient: Sendable {
         return port
     }
 
+    func exec(id: String, command: [String]) async throws -> Int32 {
+        var args = ["exec", id]
+        args += command
+        let output = try await runner.run(executable: dockerPath, arguments: args)
+        return output.exitCode
+    }
+
     private static func parseDockerPort(_ output: String) -> Int? {
         for line in output.split(whereSeparator: \.isNewline) {
             var digits: [UInt8] = []

@@ -86,6 +86,15 @@ public actor Container {
                     requestTimeout: config.requestTimeout
                 )
             }
+        case let .exec(command, timeout, pollInterval):
+            try await Waiter.wait(
+                timeout: timeout,
+                pollInterval: pollInterval,
+                description: "command '\(command.joined(separator: " "))' to exit with code 0"
+            ) { [docker, id] in
+                let exitCode = try await docker.exec(id: id, command: command)
+                return exitCode == 0
+            }
         }
     }
 }

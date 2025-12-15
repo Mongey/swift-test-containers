@@ -23,6 +23,7 @@ public enum WaitStrategy: Sendable, Hashable {
     case logContains(String, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
     case logMatches(String, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
     case http(HTTPWaitConfig)
+    case exec([String], timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
 }
 
 public struct ContainerRequest: Sendable, Hashable {
