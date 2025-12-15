@@ -25,6 +25,9 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] `.all([...], timeout)` - composite wait for all strategies to succeed
 - [x] `.any([...], timeout)` - composite wait for first strategy to succeed
 
+**Runtime operations**
+- [x] `exec()` in container (sync/async, exit code + stdout/stderr) with `ExecOptions` support
+
 **Testing**
 - [x] Unit tests for request building
 - [x] Opt-in Docker integration test via `TESTCONTAINERS_RUN_DOCKER_TESTS=1`
@@ -44,7 +47,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Startup retries with backoff/jitter - implemented as `.withRetry()` / `.withRetry(RetryPolicy)`
 
 **Runtime operations**
-- [ ] `exec()` in container (sync/async, exit code + stdout/stderr)
+- [x] `exec()` in container (sync/async, exit code + stdout/stderr) - implemented with `ExecOptions` support
 - [ ] Copy files into container (`docker cp` to)
 - [ ] Copy files from container (`docker cp` from)
 - [ ] Inspect container (state, health, IPs, env, ports, labels)
@@ -163,15 +166,15 @@ Feature design is informed by [testcontainers-go](https://github.com/testcontain
 ## Near-term Milestones
 
 **MVP+ (Next)**
-1. HTTP wait strategy
-2. Exec in container
+1. ~~HTTP wait strategy~~ ✓
+2. ~~Exec in container~~ ✓
 3. Copy files to/from container
 4. Container inspection
 
 **Infrastructure**
 5. Bind mounts + volume mounts
 6. Network creation + attachment + aliases
-7. Composite wait strategies
+7. ~~Composite wait strategies~~ ✓
 
 **Modules (First Set)**
 8. `PostgresContainer` with connection string helper

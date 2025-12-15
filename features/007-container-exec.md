@@ -1,6 +1,6 @@
 # Feature 007: Container Exec
 
-**Status**: Not Started
+**Status**: Complete
 **Priority**: Tier 1 (High Priority)
 **Complexity**: Medium
 **Estimated Effort**: 4-6 hours
@@ -707,19 +707,19 @@ func (c *DockerContainer) Exec(ctx context.Context, cmd []string, opts ...ExecOp
 
 ## Implementation Checklist
 
-- [ ] Define `ExecOptions` struct with builder methods
-- [ ] Define `ExecResult` struct with computed properties
-- [ ] Add `execCommandFailed` to `TestContainersError`
-- [ ] Implement `DockerClient.exec(id:command:options:)`
-- [ ] Implement `Container.exec(_:options:)`
-- [ ] Implement `Container.exec(_:user:)` convenience
-- [ ] Implement `Container.execOutput(_:options:)` convenience
-- [ ] Write unit tests for types
-- [ ] Write integration tests for all scenarios
-- [ ] Add documentation comments
-- [ ] Update `FEATURES.md`
-- [ ] Manual testing with real containers
-- [ ] Code review and refinement
+- [x] Define `ExecOptions` struct with builder methods
+- [x] Define `ExecResult` struct with computed properties
+- [x] Add `execCommandFailed` to `TestContainersError`
+- [x] Implement `DockerClient.exec(id:command:options:)`
+- [x] Implement `Container.exec(_:options:)`
+- [x] Implement `Container.exec(_:user:)` convenience
+- [x] Implement `Container.execOutput(_:options:)` convenience
+- [x] Write unit tests for types
+- [x] Write integration tests for all scenarios
+- [x] Add documentation comments
+- [x] Update `FEATURES.md`
+- [x] Manual testing with real containers
+- [x] Code review and refinement
 
 ---
 
