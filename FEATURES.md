@@ -22,6 +22,8 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] `.logContains(string, timeout, pollInterval)`
 - [x] `.logMatches(regex, timeout, pollInterval)` - regex pattern matching for logs
 - [x] `.http(HTTPWaitConfig)` - HTTP/HTTPS wait with method, path, status, body match
+- [x] `.all([...], timeout)` - composite wait for all strategies to succeed
+- [x] `.any([...], timeout)` - composite wait for first strategy to succeed
 
 **Testing**
 - [x] Unit tests for request building
@@ -36,9 +38,9 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 **Wait strategies (richer)**
 - [x] HTTP/HTTPS wait (method, path, status code, body match, headers) - implemented as `.http(HTTPWaitConfig)`
 - [x] Regex log waits (`.logMatches(regex, ...)`) - implemented
-- [ ] Exec wait (run command, check exit code)
-- [ ] Health check wait (Docker HEALTHCHECK status)
-- [ ] Composite/multiple waits (`.all([...])`)
+- [x] Exec wait (run command, check exit code) - implemented as `.exec([command], ...)`
+- [x] Health check wait (Docker HEALTHCHECK status) - implemented as `.healthCheck(...)`
+- [x] Composite/multiple waits (`.all([...])`, `.any([...])`) - implemented
 - [ ] Startup retries with backoff/jitter
 
 **Runtime operations**
