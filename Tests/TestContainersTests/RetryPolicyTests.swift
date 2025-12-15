@@ -1,6 +1,34 @@
 import Testing
 @testable import TestContainers
 
+// MARK: - TestContainersError.startupRetriesExhausted Tests
+
+@Test func testContainersError_startupRetriesExhausted_description() {
+    let underlyingError = TestContainersError.timeout("Wait timed out")
+    let error = TestContainersError.startupRetriesExhausted(attempts: 4, lastError: underlyingError)
+
+    let description = error.description
+    #expect(description.contains("Container startup failed after 4 attempts"))
+    #expect(description.contains("Wait timed out"))
+}
+
+@Test func testContainersError_startupRetriesExhausted_preservesLastError() {
+    let commandError = TestContainersError.commandFailed(
+        command: ["docker", "run"],
+        exitCode: 1,
+        stdout: "",
+        stderr: "port already in use"
+    )
+    let error = TestContainersError.startupRetriesExhausted(attempts: 3, lastError: commandError)
+
+    if case let .startupRetriesExhausted(attempts, lastError) = error {
+        #expect(attempts == 3)
+        #expect("\(lastError)".contains("port already in use"))
+    } else {
+        Issue.record("Expected startupRetriesExhausted error")
+    }
+}
+
 // MARK: - RetryPolicy Default Values Tests
 
 @Test func retryPolicy_defaultValues() {

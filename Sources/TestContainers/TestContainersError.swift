@@ -11,6 +11,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case allWaitStrategiesFailed([String])
     /// Empty `.any([])` array provided - at least one strategy is required
     case emptyAnyWaitStrategy
+    /// Startup failed after exhausting all retry attempts
+    case startupRetriesExhausted(attempts: Int, lastError: Error)
 
     public var description: String {
         switch self {
@@ -31,6 +33,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             return "All wait strategies in .any([...]) failed:\n\(details)"
         case .emptyAnyWaitStrategy:
             return "No wait strategies provided to .any([]) - at least one strategy is required"
+        case let .startupRetriesExhausted(attempts, lastError):
+            return "Container startup failed after \(attempts) attempts. Last error: \(lastError)"
         }
     }
 }
