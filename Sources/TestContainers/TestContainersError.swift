@@ -7,6 +7,10 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case timeout(String)
     case invalidRegexPattern(String, underlyingError: String)
     case healthCheckNotConfigured(String)
+    /// All wait strategies in an `.any([...])` composite failed
+    case allWaitStrategiesFailed([String])
+    /// Empty `.any([])` array provided - at least one strategy is required
+    case emptyAnyWaitStrategy
 
     public var description: String {
         switch self {
@@ -22,6 +26,11 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             return "Invalid regex pattern '\(pattern)': \(underlyingError)"
         case let .healthCheckNotConfigured(message):
             return "Health check not configured: \(message)"
+        case let .allWaitStrategiesFailed(errors):
+            let details = errors.enumerated().map { "  [\($0.offset)] \($0.element)" }.joined(separator: "\n")
+            return "All wait strategies in .any([...]) failed:\n\(details)"
+        case .emptyAnyWaitStrategy:
+            return "No wait strategies provided to .any([]) - at least one strategy is required"
         }
     }
 }

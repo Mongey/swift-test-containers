@@ -34,7 +34,13 @@ public actor Container {
     }
 
     func waitUntilReady() async throws {
-        switch request.waitStrategy {
+        try await waitForStrategy(request.waitStrategy)
+    }
+
+    // MARK: - Wait Strategy Execution
+
+    private func waitForStrategy(_ strategy: WaitStrategy) async throws {
+        switch strategy {
         case .none:
             return
         case let .logContains(needle, timeout, pollInterval):
@@ -113,10 +119,116 @@ public actor Container {
                 let status = try await docker.healthStatus(id: id)
                 return status.status == .healthy
             }
-        case .all, .any:
-            // TODO: Composite wait strategies not yet implemented (feature 005)
-            fatalError("Composite wait strategies (.all, .any) are not yet implemented")
+        case let .all(strategies, compositeTimeout):
+            try await waitForAll(strategies, compositeTimeout: compositeTimeout)
+        case let .any(strategies, compositeTimeout):
+            try await waitForAny(strategies, compositeTimeout: compositeTimeout)
         }
+    }
+
+    /// Waits for all strategies to succeed in parallel.
+    /// Fails fast if any strategy fails.
+    private func waitForAll(_ strategies: [WaitStrategy], compositeTimeout: Duration?) async throws {
+        // Empty array succeeds immediately (vacuous truth)
+        guard !strategies.isEmpty else { return }
+
+        // Single strategy optimization
+        if strategies.count == 1 {
+            try await waitForStrategy(strategies[0])
+            return
+        }
+
+        // Execute all strategies in parallel
+        let operation: @Sendable () async throws -> Void = { [self] in
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for strategy in strategies {
+                    group.addTask {
+                        try await self.waitForStrategy(strategy)
+                    }
+                }
+                // Wait for all to complete - fails fast on first error
+                try await group.waitForAll()
+            }
+        }
+
+        // Apply composite timeout if specified
+        if let timeout = compositeTimeout {
+            try await Waiter.withTimeout(timeout, description: "all wait strategies to complete", operation: operation)
+        } else {
+            try await operation()
+        }
+    }
+
+    /// Waits for any strategy to succeed in parallel.
+    /// First success wins, all must fail for the composite to fail.
+    private func waitForAny(_ strategies: [WaitStrategy], compositeTimeout: Duration?) async throws {
+        // Empty array fails immediately
+        guard !strategies.isEmpty else {
+            throw TestContainersError.emptyAnyWaitStrategy
+        }
+
+        // Single strategy optimization
+        if strategies.count == 1 {
+            try await waitForStrategy(strategies[0])
+            return
+        }
+
+        // Determine timeout: use composite timeout or max of individual timeouts
+        let effectiveTimeout = compositeTimeout ?? strategies.map { $0.maxTimeout() }.max() ?? .seconds(60)
+
+        try await Waiter.withTimeout(effectiveTimeout, description: "any wait strategy to complete") { [self] in
+            // Use actor to collect errors safely
+            let errorCollector = ErrorCollector()
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for (index, strategy) in strategies.enumerated() {
+                    group.addTask {
+                        do {
+                            try await self.waitForStrategy(strategy)
+                        } catch {
+                            await errorCollector.add(index: index, error: error)
+                            throw error
+                        }
+                    }
+                }
+
+                // Wait for first success
+                var successCount = 0
+                var errorCount = 0
+                let totalCount = strategies.count
+
+                while let result = await group.nextResult() {
+                    switch result {
+                    case .success:
+                        successCount += 1
+                        // First success - cancel remaining tasks and return
+                        group.cancelAll()
+                        return
+                    case .failure:
+                        errorCount += 1
+                        // All failed - throw combined error
+                        if errorCount == totalCount {
+                            let errors = await errorCollector.getErrors()
+                            throw TestContainersError.allWaitStrategiesFailed(errors)
+                        }
+                        // Continue waiting for other strategies
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Actor for safely collecting errors from concurrent tasks
+private actor ErrorCollector {
+    private var errors: [(Int, Error)] = []
+
+    func add(index: Int, error: Error) {
+        errors.append((index, error))
+    }
+
+    func getErrors() -> [String] {
+        errors.sorted { $0.0 < $1.0 }.map { "\($0.1)" }
     }
 }
 
