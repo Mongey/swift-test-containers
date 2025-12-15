@@ -197,3 +197,62 @@ import Testing
     #expect(status.hasHealthCheck == false)
     #expect(status.status == nil)
 }
+
+// MARK: - ContainerRequest.withRetry Tests
+
+@Test func containerRequest_withRetry_setsDefaultPolicy() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withRetry()
+
+    #expect(request.retryPolicy == RetryPolicy.default)
+}
+
+@Test func containerRequest_withRetry_customPolicy() {
+    let customPolicy = RetryPolicy(
+        maxAttempts: 4,
+        initialDelay: .milliseconds(500),
+        maxDelay: .seconds(15),
+        backoffMultiplier: 1.5,
+        jitter: 0.2
+    )
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withRetry(customPolicy)
+
+    #expect(request.retryPolicy == customPolicy)
+}
+
+@Test func containerRequest_withRetry_preservesOtherConfiguration() {
+    let request = ContainerRequest(image: "postgres:16")
+        .withName("test-db")
+        .withExposedPort(5432)
+        .withEnvironment(["POSTGRES_PASSWORD": "secret"])
+        .waitingFor(.tcpPort(5432))
+        .withRetry(.aggressive)
+
+    #expect(request.image == "postgres:16")
+    #expect(request.name == "test-db")
+    #expect(request.ports == [ContainerPort(containerPort: 5432)])
+    #expect(request.environment["POSTGRES_PASSWORD"] == "secret")
+    #expect(request.retryPolicy == RetryPolicy.aggressive)
+}
+
+@Test func containerRequest_withoutRetry_hasNilPolicy() {
+    let request = ContainerRequest(image: "alpine:3")
+
+    #expect(request.retryPolicy == nil)
+}
+
+@Test func containerRequest_retryPolicy_conformsToHashable() {
+    let request1 = ContainerRequest(image: "alpine:3")
+        .withRetry(.default)
+
+    let request2 = ContainerRequest(image: "alpine:3")
+        .withRetry(.default)
+
+    let request3 = ContainerRequest(image: "alpine:3")
+        .withRetry(.aggressive)
+
+    #expect(request1 == request2)
+    #expect(request1 != request3)
+}

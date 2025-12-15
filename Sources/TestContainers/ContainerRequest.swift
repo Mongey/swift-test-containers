@@ -109,6 +109,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var waitStrategy: WaitStrategy
     public var host: String
     public var healthCheck: HealthCheckConfig?
+    public var retryPolicy: RetryPolicy?
 
     public init(image: String) {
         self.image = image
@@ -120,6 +121,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
+        self.retryPolicy = nil
     }
 
     public func withName(_ name: String) -> Self {
@@ -179,6 +181,39 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withHealthCheck(command: [String], interval: Duration = .seconds(1)) -> Self {
         var copy = self
         copy.healthCheck = HealthCheckConfig(command: command, interval: interval)
+        return copy
+    }
+
+    /// Enable automatic retries with the default retry policy.
+    ///
+    /// The default policy uses 3 retry attempts, 1s initial delay, 30s max delay,
+    /// 2x exponential backoff, and 10% jitter.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "postgres:15")
+    ///     .withExposedPort(5432)
+    ///     .waitingFor(.tcpPort(5432))
+    ///     .withRetry()
+    /// ```
+    public func withRetry() -> Self {
+        withRetry(.default)
+    }
+
+    /// Enable automatic retries with a custom retry policy.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "redis:7")
+    ///     .withExposedPort(6379)
+    ///     .waitingFor(.tcpPort(6379))
+    ///     .withRetry(.aggressive)  // 5 attempts, faster retries
+    /// ```
+    ///
+    /// - Parameter policy: The retry policy to use
+    public func withRetry(_ policy: RetryPolicy) -> Self {
+        var copy = self
+        copy.retryPolicy = policy
         return copy
     }
 }
