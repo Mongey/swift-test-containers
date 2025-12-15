@@ -120,3 +120,103 @@ import TestContainers
         }
     }
 }
+
+// MARK: - exec Wait Strategy Integration Tests
+
+@Test func exec_succeeds_whenCommandExitsZero() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // Alpine container creates a file after a delay, then sleeps
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand([
+            "sh", "-c",
+            "sleep 2 && touch /tmp/ready && sleep 30"
+        ])
+        .waitingFor(.exec(
+            ["test", "-f", "/tmp/ready"],
+            timeout: .seconds(10)
+        ))
+
+    try await withContainer(request) { container in
+        // If we get here, the wait strategy succeeded
+        let containerId = await container.id
+        #expect(containerId.isEmpty == false)
+    }
+}
+
+@Test func exec_succeeds_immediatelyWhenCommandAlwaysSucceeds() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // The 'true' command always exits with 0
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sleep", "30"])
+        .waitingFor(.exec(["true"], timeout: .seconds(10)))
+
+    try await withContainer(request) { container in
+        let containerId = await container.id
+        #expect(containerId.isEmpty == false)
+    }
+}
+
+@Test func exec_timesOut_whenCommandNeverSucceeds() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sleep", "30"])
+        .waitingFor(.exec(
+            ["test", "-f", "/nonexistent"],
+            timeout: .seconds(2),
+            pollInterval: .milliseconds(100)
+        ))
+
+    do {
+        try await withContainer(request) { _ in
+            Issue.record("Expected timeout error")
+        }
+    } catch let error as TestContainersError {
+        if case let .timeout(message) = error {
+            #expect(message.contains("test -f /nonexistent"))
+        } else {
+            Issue.record("Expected timeout error, got: \(error)")
+        }
+    }
+}
+
+@Test func exec_withPostgres_pgIsReady() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "postgres:16-alpine")
+        .withEnvironment(["POSTGRES_PASSWORD": "test"])
+        .withExposedPort(5432)
+        .waitingFor(.exec(
+            ["pg_isready", "-U", "postgres"],
+            timeout: .seconds(60)
+        ))
+
+    try await withContainer(request) { container in
+        let port = try await container.hostPort(5432)
+        #expect(port > 0)
+    }
+}
+
+@Test func exec_withShellCommand() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // Test complex shell command execution
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sleep", "30"])
+        .waitingFor(.exec(
+            ["sh", "-c", "echo hello && test 1 -eq 1"],
+            timeout: .seconds(10)
+        ))
+
+    try await withContainer(request) { container in
+        let containerId = await container.id
+        #expect(containerId.isEmpty == false)
+    }
+}
