@@ -64,6 +64,25 @@ public struct DockerClient: Sendable {
             args += ["--label", "\(key)=\(value)"]
         }
 
+        // Add health check configuration if specified
+        if let healthCheck = request.healthCheck {
+            let cmdString = healthCheck.command.joined(separator: " ")
+            args += ["--health-cmd", cmdString]
+
+            if let interval = healthCheck.interval {
+                args += ["--health-interval", Self.formatDuration(interval)]
+            }
+            if let timeout = healthCheck.timeout {
+                args += ["--health-timeout", Self.formatDuration(timeout)]
+            }
+            if let startPeriod = healthCheck.startPeriod {
+                args += ["--health-start-period", Self.formatDuration(startPeriod)]
+            }
+            if let retries = healthCheck.retries {
+                args += ["--health-retries", String(retries)]
+            }
+        }
+
         args.append(request.image)
         args += request.command
 
@@ -71,6 +90,15 @@ public struct DockerClient: Sendable {
         let id = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { throw TestContainersError.unexpectedDockerOutput(output.stdout) }
         return id
+    }
+
+    private static func formatDuration(_ duration: Duration) -> String {
+        let seconds = Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+        if seconds >= 1.0 {
+            return "\(Int(seconds))s"
+        } else {
+            return "\(Int(seconds * 1000))ms"
+        }
     }
 
     func removeContainer(id: String) async throws {

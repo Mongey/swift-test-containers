@@ -223,14 +223,31 @@ import TestContainers
 
 // MARK: - healthCheck Wait Strategy Integration Tests
 
-@Test func healthCheck_succeeds_withPostgresHealthCheck() async throws {
+@Test func healthCheck_succeeds_withRuntimeHealthCheck() async throws {
     let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
     guard optedIn else { return }
 
-    // Postgres 16 includes a built-in HEALTHCHECK
+    // Use withHealthCheck to configure a runtime health check
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sh", "-c", "sleep 2 && touch /tmp/healthy && sleep 60"])
+        .withHealthCheck(command: ["test", "-f", "/tmp/healthy"], interval: .seconds(1))
+        .waitingFor(.healthCheck(timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let containerId = await container.id
+        #expect(containerId.isEmpty == false)
+    }
+}
+
+@Test func healthCheck_succeeds_withPostgres() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // Configure health check using pg_isready
     let request = ContainerRequest(image: "postgres:16-alpine")
         .withEnvironment(["POSTGRES_PASSWORD": "test"])
         .withExposedPort(5432)
+        .withHealthCheck(command: ["pg_isready", "-U", "postgres"], interval: .seconds(1))
         .waitingFor(.healthCheck(timeout: .seconds(120)))
 
     try await withContainer(request) { container in
@@ -247,7 +264,7 @@ import TestContainers
     let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
     guard optedIn else { return }
 
-    // Alpine has no HEALTHCHECK configured
+    // Alpine has no HEALTHCHECK configured and we don't add one
     let request = ContainerRequest(image: "alpine:3")
         .withCommand(["sleep", "30"])
         .waitingFor(.healthCheck(timeout: .seconds(5)))

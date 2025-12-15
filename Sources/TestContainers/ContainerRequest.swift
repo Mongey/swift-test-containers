@@ -71,6 +71,34 @@ public indirect enum WaitStrategy: Sendable, Hashable {
     }
 }
 
+/// Configuration for Docker's runtime health check (--health-cmd).
+public struct HealthCheckConfig: Sendable, Hashable {
+    /// The command to run for health checking.
+    public var command: [String]
+    /// Time between running the check.
+    public var interval: Duration?
+    /// Maximum time to wait for a check to complete.
+    public var timeout: Duration?
+    /// Start period for the container to initialize.
+    public var startPeriod: Duration?
+    /// Number of consecutive failures needed to report unhealthy.
+    public var retries: Int?
+
+    public init(
+        command: [String],
+        interval: Duration? = nil,
+        timeout: Duration? = nil,
+        startPeriod: Duration? = nil,
+        retries: Int? = nil
+    ) {
+        self.command = command
+        self.interval = interval
+        self.timeout = timeout
+        self.startPeriod = startPeriod
+        self.retries = retries
+    }
+}
+
 public struct ContainerRequest: Sendable, Hashable {
     public var image: String
     public var name: String?
@@ -80,6 +108,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var ports: [ContainerPort]
     public var waitStrategy: WaitStrategy
     public var host: String
+    public var healthCheck: HealthCheckConfig?
 
     public init(image: String) {
         self.image = image
@@ -90,6 +119,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.ports = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
+        self.healthCheck = nil
     }
 
     public func withName(_ name: String) -> Self {
@@ -131,6 +161,24 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withHost(_ host: String) -> Self {
         var copy = self
         copy.host = host
+        return copy
+    }
+
+    /// Configures a runtime health check for the container.
+    /// This adds --health-cmd and related flags to docker run.
+    public func withHealthCheck(_ config: HealthCheckConfig) -> Self {
+        var copy = self
+        copy.healthCheck = config
+        return copy
+    }
+
+    /// Configures a simple runtime health check command.
+    /// - Parameters:
+    ///   - command: The command to run for health checking
+    ///   - interval: Time between running the check (default: 30s)
+    public func withHealthCheck(command: [String], interval: Duration = .seconds(1)) -> Self {
+        var copy = self
+        copy.healthCheck = HealthCheckConfig(command: command, interval: interval)
         return copy
     }
 }
