@@ -48,6 +48,26 @@ public actor Container {
             try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: "TCP port \(host):\(hostPort) to accept connections") {
                 TCPProbe.canConnect(host: host, port: hostPort, timeout: .milliseconds(200))
             }
+        case let .http(config):
+            let hostPort = try await docker.port(id: id, containerPort: config.port)
+            let host = request.host
+            let scheme = config.useTLS ? "https" : "http"
+            let url = "\(scheme)://\(host):\(hostPort)\(config.path)"
+            try await Waiter.wait(
+                timeout: config.timeout,
+                pollInterval: config.pollInterval,
+                description: "HTTP endpoint \(url) to return expected response"
+            ) {
+                await HTTPProbe.check(
+                    url: url,
+                    method: config.method,
+                    headers: config.headers,
+                    statusCodeMatcher: config.statusCodeMatcher,
+                    bodyMatcher: config.bodyMatcher,
+                    allowInsecureTLS: config.allowInsecureTLS,
+                    requestTimeout: config.requestTimeout
+                )
+            }
         }
     }
 }

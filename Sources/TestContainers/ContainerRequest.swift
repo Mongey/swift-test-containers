@@ -21,6 +21,7 @@ public enum WaitStrategy: Sendable, Hashable {
     case none
     case tcpPort(Int, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
     case logContains(String, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
+    case http(HTTPWaitConfig)
 }
 
 public struct ContainerRequest: Sendable, Hashable {
