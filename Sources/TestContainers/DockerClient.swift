@@ -59,7 +59,8 @@ public actor DockerClient {
 
     func logs(id: String) async throws -> String {
         let output = try await runDocker(["logs", id])
-        return output.stdout
+        // Docker logs outputs to both stdout and stderr - combine them
+        return output.stdout + output.stderr
     }
 
     func port(id: String, containerPort: Int) async throws -> Int {

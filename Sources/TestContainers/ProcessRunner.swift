@@ -13,8 +13,9 @@ actor ProcessRunner {
         environment: [String: String] = [:]
     ) async throws -> CommandOutput {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
+        // Use /usr/bin/env to search PATH for the executable
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [executable] + arguments
 
         if !environment.isEmpty {
             var env = ProcessInfo.processInfo.environment

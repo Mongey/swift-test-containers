@@ -63,7 +63,7 @@ import TestContainers
     let request = ContainerRequest(image: "nginx:alpine")
         .withExposedPort(80)
         .waitingFor(.logMatches(
-            #"start worker process(es)?"#,
+            #"start worker process"#,
             timeout: .seconds(30)
         ))
 
