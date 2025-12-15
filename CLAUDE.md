@@ -43,6 +43,7 @@ Wait strategies are defined as an enum in `ContainerRequest.swift`:
 - `.logContains(string, timeout, pollInterval)` - Poll container logs for substring
 - `.logMatches(pattern, timeout, pollInterval)` - Poll container logs for regex match
 - `.http(HTTPWaitConfig)` - Poll HTTP endpoint
+- `.exec(command, timeout, pollInterval)` - Poll by executing command inside container (exit code 0 = ready)
 
 Wait logic is executed in `Container.waitUntilReady()` using `Waiter.wait()` which polls until condition is met or timeout.
 
