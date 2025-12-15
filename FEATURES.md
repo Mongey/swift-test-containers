@@ -27,6 +27,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 
 **Runtime operations**
 - [x] `exec()` in container (sync/async, exit code + stdout/stderr) with `ExecOptions` support
+- [x] Copy files to container (`docker cp` to) - file, directory, string, and Data support
 
 **Testing**
 - [x] Unit tests for request building
@@ -48,7 +49,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 
 **Runtime operations**
 - [x] `exec()` in container (sync/async, exit code + stdout/stderr) - implemented with `ExecOptions` support
-- [ ] Copy files into container (`docker cp` to)
+- [x] Copy files into container (`docker cp` to) - implemented with file, directory, string, and Data variants
 - [ ] Copy files from container (`docker cp` from)
 - [ ] Inspect container (state, health, IPs, env, ports, labels)
 - [ ] Stream logs / follow logs (requires SDK or background process)
@@ -168,7 +169,7 @@ Feature design is informed by [testcontainers-go](https://github.com/testcontain
 **MVP+ (Next)**
 1. ~~HTTP wait strategy~~ ✓
 2. ~~Exec in container~~ ✓
-3. Copy files to/from container
+3. ~~Copy files to container~~ ✓ / Copy files from container
 4. Container inspection
 
 **Infrastructure**
