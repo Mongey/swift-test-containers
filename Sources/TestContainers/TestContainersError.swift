@@ -5,6 +5,7 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case commandFailed(command: [String], exitCode: Int32, stdout: String, stderr: String)
     case unexpectedDockerOutput(String)
     case timeout(String)
+    case invalidRegexPattern(String, underlyingError: String)
 
     public var description: String {
         switch self {
@@ -16,6 +17,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             return "Unexpected Docker output: \(output)"
         case let .timeout(message):
             return "Timed out: \(message)"
+        case let .invalidRegexPattern(pattern, underlyingError):
+            return "Invalid regex pattern '\(pattern)': \(underlyingError)"
         }
     }
 }

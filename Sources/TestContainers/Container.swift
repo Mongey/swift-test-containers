@@ -42,6 +42,23 @@ public actor Container {
                 let text = try await docker.logs(id: id)
                 return text.contains(needle)
             }
+        case let .logMatches(pattern, timeout, pollInterval):
+            // Compile regex once before polling loop for efficiency
+            let regex: Regex<Substring>
+            do {
+                regex = try Regex(pattern)
+            } catch {
+                throw TestContainersError.invalidRegexPattern(pattern, underlyingError: error.localizedDescription)
+            }
+
+            try await Waiter.wait(
+                timeout: timeout,
+                pollInterval: pollInterval,
+                description: "container logs to match regex '\(pattern)'"
+            ) { [docker, id] in
+                let text = try await docker.logs(id: id)
+                return text.contains(regex)
+            }
         case let .tcpPort(containerPort, timeout, pollInterval):
             let hostPort = try await docker.port(id: id, containerPort: containerPort)
             let host = request.host
