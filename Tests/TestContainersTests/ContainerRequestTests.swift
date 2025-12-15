@@ -1,5 +1,5 @@
 import Testing
-import TestContainers
+@testable import TestContainers
 
 @Test func buildsDockerPortFlags() {
     let request = ContainerRequest(image: "alpine:3")
@@ -95,4 +95,105 @@ import TestContainers
     } else {
         Issue.record("Expected .exec wait strategy")
     }
+}
+
+// MARK: - WaitStrategy.healthCheck Tests
+
+@Test func waitStrategy_healthCheck_configuresCorrectly() {
+    let request = ContainerRequest(image: "postgres:16")
+        .waitingFor(.healthCheck(timeout: .seconds(120), pollInterval: .milliseconds(500)))
+
+    if case let .healthCheck(timeout, pollInterval) = request.waitStrategy {
+        #expect(timeout == .seconds(120))
+        #expect(pollInterval == .milliseconds(500))
+    } else {
+        Issue.record("Expected .healthCheck wait strategy")
+    }
+}
+
+@Test func waitStrategy_healthCheck_defaultValues() {
+    let request = ContainerRequest(image: "postgres:16")
+        .waitingFor(.healthCheck())
+
+    if case let .healthCheck(timeout, pollInterval) = request.waitStrategy {
+        #expect(timeout == .seconds(60))
+        #expect(pollInterval == .milliseconds(200))
+    } else {
+        Issue.record("Expected .healthCheck wait strategy")
+    }
+}
+
+@Test func waitStrategy_healthCheck_conformsToHashable() {
+    let strategy1 = WaitStrategy.healthCheck(timeout: .seconds(30))
+    let strategy2 = WaitStrategy.healthCheck(timeout: .seconds(30))
+    let strategy3 = WaitStrategy.healthCheck(timeout: .seconds(60))
+
+    #expect(strategy1 == strategy2)
+    #expect(strategy1 != strategy3)
+}
+
+// MARK: - DockerClient.parseHealthStatus Tests
+
+@Test func parseHealthStatus_returnsHealthy() throws {
+    let json = """
+    {"Status": "healthy", "FailingStreak": 0, "Log": []}
+    """
+
+    let status = try DockerClient.parseHealthStatus(json)
+
+    #expect(status.hasHealthCheck == true)
+    #expect(status.status == ContainerHealthStatus.Status.healthy)
+}
+
+@Test func parseHealthStatus_returnsStarting() throws {
+    let json = """
+    {"Status": "starting", "FailingStreak": 0, "Log": []}
+    """
+
+    let status = try DockerClient.parseHealthStatus(json)
+
+    #expect(status.hasHealthCheck == true)
+    #expect(status.status == ContainerHealthStatus.Status.starting)
+}
+
+@Test func parseHealthStatus_returnsUnhealthy() throws {
+    let json = """
+    {"Status": "unhealthy", "FailingStreak": 3, "Log": []}
+    """
+
+    let status = try DockerClient.parseHealthStatus(json)
+
+    #expect(status.hasHealthCheck == true)
+    #expect(status.status == ContainerHealthStatus.Status.unhealthy)
+}
+
+@Test func parseHealthStatus_returnsNoHealthCheck_forNull() throws {
+    let json = "null"
+
+    let status = try DockerClient.parseHealthStatus(json)
+
+    #expect(status.hasHealthCheck == false)
+    #expect(status.status == nil)
+}
+
+@Test func parseHealthStatus_handlesWhitespace() throws {
+    let json = """
+
+    {"Status": "healthy"}
+
+    """
+
+    let status = try DockerClient.parseHealthStatus(json)
+
+    #expect(status.hasHealthCheck == true)
+    #expect(status.status == ContainerHealthStatus.Status.healthy)
+}
+
+@Test func parseHealthStatus_returnsNoHealthCheck_forEmptyString() throws {
+    let json = ""
+
+    let status = try DockerClient.parseHealthStatus(json)
+
+    #expect(status.hasHealthCheck == false)
+    #expect(status.status == nil)
 }

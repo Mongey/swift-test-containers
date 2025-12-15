@@ -220,3 +220,47 @@ import TestContainers
         #expect(containerId.isEmpty == false)
     }
 }
+
+// MARK: - healthCheck Wait Strategy Integration Tests
+
+@Test func healthCheck_succeeds_withPostgresHealthCheck() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // Postgres 16 includes a built-in HEALTHCHECK
+    let request = ContainerRequest(image: "postgres:16-alpine")
+        .withEnvironment(["POSTGRES_PASSWORD": "test"])
+        .withExposedPort(5432)
+        .waitingFor(.healthCheck(timeout: .seconds(120)))
+
+    try await withContainer(request) { container in
+        let port = try await container.hostPort(5432)
+        #expect(port > 0)
+
+        // Container should be healthy at this point
+        let logs = try await container.logs()
+        #expect(logs.contains("database system is ready to accept connections"))
+    }
+}
+
+@Test func healthCheck_failsWithoutHealthCheck() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // Alpine has no HEALTHCHECK configured
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sleep", "30"])
+        .waitingFor(.healthCheck(timeout: .seconds(5)))
+
+    do {
+        try await withContainer(request) { _ in
+            Issue.record("Expected healthCheckNotConfigured error")
+        }
+    } catch let error as TestContainersError {
+        if case let .healthCheckNotConfigured(message) = error {
+            #expect(message.contains("does not have a HEALTHCHECK configured"))
+        } else {
+            Issue.record("Expected healthCheckNotConfigured error, got: \(error)")
+        }
+    }
+}

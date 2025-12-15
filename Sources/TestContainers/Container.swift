@@ -95,6 +95,27 @@ public actor Container {
                 let exitCode = try await docker.exec(id: id, command: command)
                 return exitCode == 0
             }
+        case let .healthCheck(timeout, pollInterval):
+            // First check if container has health check configured
+            let initialStatus = try await docker.healthStatus(id: id)
+            guard initialStatus.hasHealthCheck else {
+                throw TestContainersError.healthCheckNotConfigured(
+                    "Container \(id) does not have a HEALTHCHECK configured. " +
+                    "Ensure the image has a HEALTHCHECK instruction or specify one via --health-cmd."
+                )
+            }
+
+            try await Waiter.wait(
+                timeout: timeout,
+                pollInterval: pollInterval,
+                description: "container health status to be 'healthy'"
+            ) { [docker, id] in
+                let status = try await docker.healthStatus(id: id)
+                return status.status == .healthy
+            }
+        case .all, .any:
+            // TODO: Composite wait strategies not yet implemented (feature 005)
+            fatalError("Composite wait strategies (.all, .any) are not yet implemented")
         }
     }
 }

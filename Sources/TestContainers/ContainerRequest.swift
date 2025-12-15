@@ -17,13 +17,58 @@ public struct ContainerPort: Hashable, Sendable {
     }
 }
 
-public enum WaitStrategy: Sendable, Hashable {
+public indirect enum WaitStrategy: Sendable, Hashable {
     case none
     case tcpPort(Int, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
     case logContains(String, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
     case logMatches(String, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
     case http(HTTPWaitConfig)
     case exec([String], timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
+    /// Waits for Docker's built-in HEALTHCHECK to report "healthy" status.
+    /// The container image must have a HEALTHCHECK instruction configured.
+    case healthCheck(timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
+
+    /// Waits for all strategies to succeed. All conditions must pass.
+    /// - Parameters:
+    ///   - strategies: Array of wait strategies that must all succeed
+    ///   - timeout: Optional composite timeout that overrides individual strategy timeouts
+    case all([WaitStrategy], timeout: Duration? = nil)
+
+    /// Waits for any strategy to succeed. First success wins.
+    /// - Parameters:
+    ///   - strategies: Array of wait strategies where any one succeeding is sufficient
+    ///   - timeout: Optional composite timeout that overrides individual strategy timeouts
+    case any([WaitStrategy], timeout: Duration? = nil)
+
+    /// Returns the maximum timeout for this strategy (recursively for composites).
+    public func maxTimeout() -> Duration {
+        switch self {
+        case .none:
+            return .seconds(0)
+        case let .tcpPort(_, timeout, _):
+            return timeout
+        case let .logContains(_, timeout, _):
+            return timeout
+        case let .logMatches(_, timeout, _):
+            return timeout
+        case let .http(config):
+            return config.timeout
+        case let .exec(_, timeout, _):
+            return timeout
+        case let .healthCheck(timeout, _):
+            return timeout
+        case let .all(strategies, compositeTimeout):
+            if let compositeTimeout {
+                return compositeTimeout
+            }
+            return strategies.map { $0.maxTimeout() }.max() ?? .seconds(0)
+        case let .any(strategies, compositeTimeout):
+            if let compositeTimeout {
+                return compositeTimeout
+            }
+            return strategies.map { $0.maxTimeout() }.max() ?? .seconds(0)
+        }
+    }
 }
 
 public struct ContainerRequest: Sendable, Hashable {

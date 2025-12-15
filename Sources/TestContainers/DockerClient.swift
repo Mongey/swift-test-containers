@@ -1,5 +1,25 @@
 import Foundation
 
+/// Represents the health status of a container from Docker's HEALTHCHECK feature.
+public struct ContainerHealthStatus: Sendable, Equatable {
+    /// Possible health check status values from Docker.
+    public enum Status: String, Sendable {
+        case starting
+        case healthy
+        case unhealthy
+    }
+
+    /// The current health status. Nil if the container is in an unknown state.
+    public let status: Status?
+    /// Whether the container has a health check configured.
+    public let hasHealthCheck: Bool
+}
+
+/// Internal struct for parsing Docker health check JSON response.
+private struct HealthCheckResponse: Decodable {
+    let Status: String?
+}
+
 public struct DockerClient: Sendable {
     private let dockerPath: String
     private let runner = ProcessRunner()
@@ -77,6 +97,34 @@ public struct DockerClient: Sendable {
         args += command
         let output = try await runner.run(executable: dockerPath, arguments: args)
         return output.exitCode
+    }
+
+    func healthStatus(id: String) async throws -> ContainerHealthStatus {
+        let output = try await runDocker([
+            "inspect",
+            "--format", "{{json .State.Health}}",
+            id
+        ])
+        return try Self.parseHealthStatus(output.stdout)
+    }
+
+    static func parseHealthStatus(_ json: String) throws -> ContainerHealthStatus {
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle "null" case (no health check configured)
+        if trimmed == "null" || trimmed.isEmpty {
+            return ContainerHealthStatus(status: nil, hasHealthCheck: false)
+        }
+
+        let data = Data(trimmed.utf8)
+        let response = try JSONDecoder().decode(HealthCheckResponse.self, from: data)
+
+        guard let statusString = response.Status else {
+            return ContainerHealthStatus(status: nil, hasHealthCheck: false)
+        }
+
+        let status = ContainerHealthStatus.Status(rawValue: statusString)
+        return ContainerHealthStatus(status: status, hasHealthCheck: true)
     }
 
     private static func parseDockerPort(_ output: String) -> Int? {

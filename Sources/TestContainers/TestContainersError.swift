@@ -6,6 +6,7 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case unexpectedDockerOutput(String)
     case timeout(String)
     case invalidRegexPattern(String, underlyingError: String)
+    case healthCheckNotConfigured(String)
 
     public var description: String {
         switch self {
@@ -19,6 +20,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             return "Timed out: \(message)"
         case let .invalidRegexPattern(pattern, underlyingError):
             return "Invalid regex pattern '\(pattern)': \(underlyingError)"
+        case let .healthCheckNotConfigured(message):
+            return "Health check not configured: \(message)"
         }
     }
 }
