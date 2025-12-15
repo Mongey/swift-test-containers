@@ -41,7 +41,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Exec wait (run command, check exit code) - implemented as `.exec([command], ...)`
 - [x] Health check wait (Docker HEALTHCHECK status) - implemented as `.healthCheck(...)`
 - [x] Composite/multiple waits (`.all([...])`, `.any([...])`) - implemented
-- [ ] Startup retries with backoff/jitter
+- [x] Startup retries with backoff/jitter - implemented as `.withRetry()` / `.withRetry(RetryPolicy)`
 
 **Runtime operations**
 - [ ] `exec()` in container (sync/async, exit code + stdout/stderr)
