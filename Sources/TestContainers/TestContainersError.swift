@@ -13,6 +13,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case emptyAnyWaitStrategy
     /// Startup failed after exhausting all retry attempts
     case startupRetriesExhausted(attempts: Int, lastError: Error)
+    /// Command executed in container failed with non-zero exit code
+    case execCommandFailed(command: [String], exitCode: Int32, stdout: String, stderr: String, containerID: String)
 
     public var description: String {
         switch self {
@@ -35,6 +37,15 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             return "No wait strategies provided to .any([]) - at least one strategy is required"
         case let .startupRetriesExhausted(attempts, lastError):
             return "Container startup failed after \(attempts) attempts. Last error: \(lastError)"
+        case let .execCommandFailed(command, exitCode, stdout, stderr, containerID):
+            return """
+            Exec command failed in container \(containerID) (exit \(exitCode)): \
+            \(command.joined(separator: " "))
+            stdout:
+            \(stdout)
+            stderr:
+            \(stderr)
+            """
         }
     }
 }

@@ -33,6 +33,70 @@ public actor Container {
         try await docker.removeContainer(id: id)
     }
 
+    // MARK: - Exec
+
+    /// Execute a command in the running container.
+    ///
+    /// - Parameters:
+    ///   - command: The command and arguments to execute
+    ///   - options: Execution options (user, working directory, environment)
+    /// - Returns: Command output including exit code, stdout, and stderr
+    /// - Throws: `TestContainersError.commandFailed` if exec setup fails
+    ///
+    /// Example:
+    /// ```swift
+    /// let result = try await container.exec(["ls", "-la", "/app"])
+    /// print("Exit code: \(result.exitCode)")
+    /// print("Output:\n\(result.stdout)")
+    /// ```
+    public func exec(
+        _ command: [String],
+        options: ExecOptions = ExecOptions()
+    ) async throws -> ExecResult {
+        try await docker.exec(id: id, command: command, options: options)
+    }
+
+    /// Execute a command in the running container with a custom user.
+    ///
+    /// Convenience method for running commands as a specific user.
+    ///
+    /// - Parameters:
+    ///   - command: The command and arguments to execute
+    ///   - user: User specification (username, UID, or UID:GID)
+    /// - Returns: Command output including exit code, stdout, and stderr
+    public func exec(
+        _ command: [String],
+        user: String
+    ) async throws -> ExecResult {
+        try await exec(command, options: ExecOptions().withUser(user))
+    }
+
+    /// Execute a command and return only stdout.
+    ///
+    /// Convenience method that throws if exit code is non-zero.
+    ///
+    /// - Parameters:
+    ///   - command: The command and arguments to execute
+    ///   - options: Execution options
+    /// - Returns: Standard output as a string
+    /// - Throws: `TestContainersError.execCommandFailed` if exit code != 0
+    public func execOutput(
+        _ command: [String],
+        options: ExecOptions = ExecOptions()
+    ) async throws -> String {
+        let result = try await exec(command, options: options)
+        if result.failed {
+            throw TestContainersError.execCommandFailed(
+                command: command,
+                exitCode: result.exitCode,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                containerID: id
+            )
+        }
+        return result.stdout
+    }
+
     func waitUntilReady() async throws {
         try await waitForStrategy(request.waitStrategy)
     }

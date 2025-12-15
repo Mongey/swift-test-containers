@@ -127,6 +127,50 @@ public struct DockerClient: Sendable {
         return output.exitCode
     }
 
+    /// Execute a command in a container with options.
+    ///
+    /// - Parameters:
+    ///   - id: The container ID
+    ///   - command: The command and arguments to execute
+    ///   - options: Execution options (user, working directory, environment, etc.)
+    /// - Returns: ExecResult containing exit code, stdout, and stderr
+    func exec(id: String, command: [String], options: ExecOptions) async throws -> ExecResult {
+        var args: [String] = ["exec"]
+
+        if options.detached {
+            args.append("-d")
+        }
+
+        if options.interactive {
+            args.append("-i")
+        }
+
+        if options.tty {
+            args.append("-t")
+        }
+
+        if let user = options.user {
+            args += ["-u", user]
+        }
+
+        if let workdir = options.workingDirectory {
+            args += ["-w", workdir]
+        }
+
+        for (key, value) in options.environment.sorted(by: { $0.key < $1.key }) {
+            args += ["-e", "\(key)=\(value)"]
+        }
+
+        args.append(id)
+        args += command
+
+        // Note: Don't use runDocker() because we want to capture non-zero exit codes
+        // without throwing - the command may intentionally fail
+        let output = try await runner.run(executable: dockerPath, arguments: args)
+
+        return ExecResult(exitCode: output.exitCode, stdout: output.stdout, stderr: output.stderr)
+    }
+
     func healthStatus(id: String) async throws -> ContainerHealthStatus {
         let output = try await runDocker([
             "inspect",
