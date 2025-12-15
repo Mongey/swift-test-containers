@@ -220,4 +220,58 @@ public struct DockerClient: Sendable {
         }
         return nil
     }
+
+    // MARK: - Copy Operations
+
+    /// Copy a file or directory from the host to a container.
+    ///
+    /// - Parameters:
+    ///   - id: The container ID
+    ///   - sourcePath: Absolute path to source file or directory on host
+    ///   - destinationPath: Destination path in container
+    /// - Throws: `TestContainersError.invalidInput` if source doesn't exist,
+    ///           `TestContainersError.commandFailed` if docker cp fails
+    func copyToContainer(id: String, sourcePath: String, destinationPath: String) async throws {
+        // Validate source exists
+        let fileManager = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: sourcePath, isDirectory: &isDirectory) else {
+            throw TestContainersError.invalidInput("Source path does not exist: \(sourcePath)")
+        }
+
+        // docker cp <src> <container>:<dest>
+        let target = "\(id):\(destinationPath)"
+        _ = try await runDocker(["cp", sourcePath, target])
+    }
+
+    /// Copy data directly to a file in a container.
+    ///
+    /// Creates a temporary file, copies it to the container, and cleans up.
+    ///
+    /// - Parameters:
+    ///   - id: The container ID
+    ///   - data: Data to write to the container
+    ///   - destinationPath: Destination file path in container
+    /// - Throws: `TestContainersError.commandFailed` if docker cp fails
+    func copyDataToContainer(id: String, data: Data, destinationPath: String) async throws {
+        // Create temporary file
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFileName = "testcontainers-\(UUID().uuidString)"
+        let tempFileURL = tempDir.appendingPathComponent(tempFileName)
+
+        do {
+            // Write data to temp file
+            try data.write(to: tempFileURL)
+
+            // Copy temp file to container
+            try await copyToContainer(id: id, sourcePath: tempFileURL.path, destinationPath: destinationPath)
+
+            // Clean up temp file
+            try FileManager.default.removeItem(at: tempFileURL)
+        } catch {
+            // Ensure cleanup even on failure
+            try? FileManager.default.removeItem(at: tempFileURL)
+            throw error
+        }
+    }
 }

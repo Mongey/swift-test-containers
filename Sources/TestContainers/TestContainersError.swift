@@ -15,6 +15,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case startupRetriesExhausted(attempts: Int, lastError: Error)
     /// Command executed in container failed with non-zero exit code
     case execCommandFailed(command: [String], exitCode: Int32, stdout: String, stderr: String, containerID: String)
+    /// Invalid input provided to a function
+    case invalidInput(String)
 
     public var description: String {
         switch self {
@@ -46,6 +48,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             stderr:
             \(stderr)
             """
+        case let .invalidInput(message):
+            return "Invalid input: \(message)"
         }
     }
 }

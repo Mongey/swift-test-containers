@@ -97,6 +97,88 @@ public actor Container {
         return result.stdout
     }
 
+    // MARK: - Copy Operations
+
+    /// Copy a file from the host filesystem into the container.
+    ///
+    /// Uses `docker cp` to copy a file from the host to the container.
+    ///
+    /// - Parameters:
+    ///   - hostPath: Absolute path to file on host
+    ///   - containerPath: Destination path in container (absolute or relative to workdir)
+    /// - Throws: `TestContainersError.invalidInput` if source doesn't exist,
+    ///           `TestContainersError.commandFailed` if docker cp fails
+    ///
+    /// Example:
+    /// ```swift
+    /// try await container.copyFileToContainer(from: "/tmp/config.json", to: "/app/config.json")
+    /// ```
+    public func copyFileToContainer(from hostPath: String, to containerPath: String) async throws {
+        try await docker.copyToContainer(id: id, sourcePath: hostPath, destinationPath: containerPath)
+    }
+
+    /// Copy a directory from the host filesystem into the container.
+    ///
+    /// Uses `docker cp` to copy a directory tree recursively.
+    ///
+    /// - Parameters:
+    ///   - hostPath: Absolute path to directory on host
+    ///   - containerPath: Destination path in container
+    /// - Note: Follows docker cp semantics - trailing slash matters for merge behavior
+    /// - Throws: `TestContainersError.invalidInput` if source doesn't exist,
+    ///           `TestContainersError.commandFailed` if docker cp fails
+    ///
+    /// Example:
+    /// ```swift
+    /// try await container.copyDirectoryToContainer(from: "/tmp/fixtures", to: "/app/data")
+    /// ```
+    public func copyDirectoryToContainer(from hostPath: String, to containerPath: String) async throws {
+        try await docker.copyToContainer(id: id, sourcePath: hostPath, destinationPath: containerPath)
+    }
+
+    /// Copy data directly into a file in the container.
+    ///
+    /// Creates a temporary file with the data, copies it to the container, and cleans up.
+    ///
+    /// - Parameters:
+    ///   - data: Data to write to the container
+    ///   - containerPath: Destination file path in container
+    /// - Throws: `TestContainersError.commandFailed` if docker cp fails
+    ///
+    /// Example:
+    /// ```swift
+    /// let imageData = try Data(contentsOf: imageURL)
+    /// try await container.copyDataToContainer(imageData, to: "/app/image.png")
+    /// ```
+    public func copyDataToContainer(_ data: Data, to containerPath: String) async throws {
+        try await docker.copyDataToContainer(id: id, data: data, destinationPath: containerPath)
+    }
+
+    /// Copy string content into a file in the container.
+    ///
+    /// Encodes the string as UTF-8 and copies it to the container.
+    ///
+    /// - Parameters:
+    ///   - content: String content to write (will be UTF-8 encoded)
+    ///   - containerPath: Destination file path in container
+    /// - Throws: `TestContainersError.invalidInput` if string cannot be encoded as UTF-8,
+    ///           `TestContainersError.commandFailed` if docker cp fails
+    ///
+    /// Example:
+    /// ```swift
+    /// let config = """
+    /// server.port=8080
+    /// server.host=0.0.0.0
+    /// """
+    /// try await container.copyToContainer(config, to: "/app/config.properties")
+    /// ```
+    public func copyToContainer(_ content: String, to containerPath: String) async throws {
+        guard let data = content.data(using: .utf8) else {
+            throw TestContainersError.invalidInput("Failed to encode string as UTF-8")
+        }
+        try await copyDataToContainer(data, to: containerPath)
+    }
+
     func waitUntilReady() async throws {
         try await waitForStrategy(request.waitStrategy)
     }
