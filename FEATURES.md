@@ -31,6 +31,9 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Copy files from container (`docker cp` from) - file, directory, and Data variants
 - [x] `inspect()` - comprehensive container inspection (state, health, IPs, env, ports, labels)
 
+**Container configuration**
+- [x] Volume mounts (named volumes) - `.withVolume(_:mountedAt:readOnly:)`
+
 **Testing**
 - [x] Unit tests for request building
 - [x] Opt-in Docker integration test via `TESTCONTAINERS_RUN_DOCKER_TESTS=1`
@@ -61,7 +64,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 ### Tier 2: Medium Priority
 
 **Container configuration**
-- [ ] Volume mounts (named volumes)
+- [x] Volume mounts (named volumes) - implemented as `.withVolume(_:mountedAt:readOnly:)`
 - [ ] Bind mounts (host path → container path)
 - [ ] Tmpfs mounts
 - [ ] Working directory (`--workdir`)
