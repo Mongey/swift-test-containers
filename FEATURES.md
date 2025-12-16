@@ -87,7 +87,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 
 **Lifecycle & hooks**
 - [ ] Explicit `start()` / `stop()` API (in addition to scoped helper)
-- [ ] Lifecycle hooks: PreStart, PostStart, PreStop, PostStop, PreTerminate, PostTerminate
+- [x] Lifecycle hooks: PreStart, PostStart, PreStop, PostStop, PreTerminate, PostTerminate - implemented as `.onPreStart()`, `.onPostStart()`, etc.
 - [ ] Log consumers (stream logs to callback during execution)
 
 ---
@@ -190,5 +190,5 @@ Feature design is informed by [testcontainers-go](https://github.com/testcontain
 
 **Reliability**
 10. Improved diagnostics (logs on timeout)
-11. Lifecycle hooks
+11. ~~Lifecycle hooks~~ ✓
 12. Label-based cleanup sweeper
