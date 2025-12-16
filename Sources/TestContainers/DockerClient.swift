@@ -69,6 +69,11 @@ public struct DockerClient: Sendable {
             args += ["-v", mount.dockerFlag]
         }
 
+        // Add bind mounts sorted by host path for deterministic ordering
+        for mount in request.bindMounts.sorted(by: { $0.hostPath < $1.hostPath }) {
+            args += ["-v", mount.dockerFlag]
+        }
+
         // Add health check configuration if specified
         if let healthCheck = request.healthCheck {
             let cmdString = healthCheck.command.joined(separator: " ")

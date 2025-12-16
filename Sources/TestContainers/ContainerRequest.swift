@@ -1,5 +1,67 @@
 import Foundation
 
+/// Represents bind mount consistency mode for cross-platform performance tuning.
+/// On macOS with Docker Desktop, these modes affect file synchronization performance.
+/// On Linux, these modes are ignored (native filesystem, no virtualization layer).
+public enum BindMountConsistency: String, Sendable, Hashable {
+    /// No explicit consistency mode (uses Docker default).
+    case `default` = ""
+    /// Host is authoritative - fastest for read-heavy workloads (config files).
+    case cached = "cached"
+    /// Container is authoritative - fastest for write-heavy workloads (build artifacts, logs).
+    case delegated = "delegated"
+    /// Perfect consistency - slowest, rarely needed.
+    case consistent = "consistent"
+}
+
+/// Represents a bind mount from a host path to a container path.
+/// Bind mounts allow you to mount a host file or directory into a container.
+public struct BindMount: Sendable, Hashable {
+    /// Absolute path on the host filesystem.
+    public var hostPath: String
+    /// Absolute path inside the container where the mount will be accessible.
+    public var containerPath: String
+    /// Whether the mount is read-only (container cannot modify the mounted path).
+    public var readOnly: Bool
+    /// Performance tuning for macOS (ignored on Linux).
+    public var consistency: BindMountConsistency
+
+    public init(
+        hostPath: String,
+        containerPath: String,
+        readOnly: Bool = false,
+        consistency: BindMountConsistency = .default
+    ) {
+        self.hostPath = hostPath
+        self.containerPath = containerPath
+        self.readOnly = readOnly
+        self.consistency = consistency
+    }
+
+    /// Generates Docker CLI flag for this bind mount.
+    /// Examples:
+    ///   - `/host/path:/container/path`
+    ///   - `/host/path:/container/path:ro`
+    ///   - `/host/path:/container/path:cached`
+    ///   - `/host/path:/container/path:ro,delegated`
+    var dockerFlag: String {
+        var options: [String] = []
+
+        if readOnly {
+            options.append("ro")
+        }
+
+        if consistency != .default {
+            options.append(consistency.rawValue)
+        }
+
+        if options.isEmpty {
+            return "\(hostPath):\(containerPath)"
+        }
+        return "\(hostPath):\(containerPath):\(options.joined(separator: ","))"
+    }
+}
+
 /// Represents a named volume mount configuration for Docker containers.
 public struct VolumeMount: Hashable, Sendable {
     /// The name of the Docker volume.
@@ -131,6 +193,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var labels: [String: String]
     public var ports: [ContainerPort]
     public var volumes: [VolumeMount]
+    public var bindMounts: [BindMount]
     public var waitStrategy: WaitStrategy
     public var host: String
     public var healthCheck: HealthCheckConfig?
@@ -144,6 +207,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.labels = ["testcontainers.swift": "true"]
         self.ports = []
         self.volumes = []
+        self.bindMounts = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
@@ -198,6 +262,62 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withVolumeMount(_ mount: VolumeMount) -> Self {
         var copy = self
         copy.volumes.append(mount)
+        return copy
+    }
+
+    /// Adds a bind mount from host path to container path.
+    ///
+    /// - Parameters:
+    ///   - hostPath: Absolute path on the host filesystem (must exist)
+    ///   - containerPath: Absolute path in the container filesystem
+    ///   - readOnly: If true, container cannot modify the mounted path (default: false)
+    ///   - consistency: Performance tuning for macOS (default: .default)
+    /// - Returns: Updated ContainerRequest with the bind mount added
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "nginx:alpine")
+    ///     .withBindMount(
+    ///         hostPath: "/Users/dev/config/nginx.conf",
+    ///         containerPath: "/etc/nginx/nginx.conf",
+    ///         readOnly: true
+    ///     )
+    /// ```
+    public func withBindMount(
+        hostPath: String,
+        containerPath: String,
+        readOnly: Bool = false,
+        consistency: BindMountConsistency = .default
+    ) -> Self {
+        var copy = self
+        copy.bindMounts.append(BindMount(
+            hostPath: hostPath,
+            containerPath: containerPath,
+            readOnly: readOnly,
+            consistency: consistency
+        ))
+        return copy
+    }
+
+    /// Adds a bind mount using a pre-constructed BindMount value.
+    ///
+    /// - Parameter mount: The bind mount configuration
+    /// - Returns: Updated ContainerRequest with the bind mount added
+    ///
+    /// Example:
+    /// ```swift
+    /// let mount = BindMount(
+    ///     hostPath: "/tmp/data",
+    ///     containerPath: "/data",
+    ///     readOnly: false,
+    ///     consistency: .cached
+    /// )
+    /// let request = ContainerRequest(image: "alpine:3")
+    ///     .withBindMount(mount)
+    /// ```
+    public func withBindMount(_ mount: BindMount) -> Self {
+        var copy = self
+        copy.bindMounts.append(mount)
         return copy
     }
 

@@ -336,3 +336,153 @@ import Testing
     let request = ContainerRequest(image: "alpine:3")
     #expect(request.volumes.isEmpty)
 }
+
+// MARK: - BindMount Tests
+
+@Test func bindMount_dockerFlag_readWrite() {
+    let mount = BindMount(hostPath: "/tmp/data", containerPath: "/mnt/data")
+    #expect(mount.dockerFlag == "/tmp/data:/mnt/data")
+}
+
+@Test func bindMount_dockerFlag_readOnly() {
+    let mount = BindMount(hostPath: "/host/config.yml", containerPath: "/etc/config.yml", readOnly: true)
+    #expect(mount.dockerFlag == "/host/config.yml:/etc/config.yml:ro")
+}
+
+@Test func bindMount_dockerFlag_cached() {
+    let mount = BindMount(
+        hostPath: "/Users/dev/src",
+        containerPath: "/app/src",
+        readOnly: false,
+        consistency: .cached
+    )
+    #expect(mount.dockerFlag == "/Users/dev/src:/app/src:cached")
+}
+
+@Test func bindMount_dockerFlag_delegated() {
+    let mount = BindMount(
+        hostPath: "/tmp/logs",
+        containerPath: "/logs",
+        readOnly: false,
+        consistency: .delegated
+    )
+    #expect(mount.dockerFlag == "/tmp/logs:/logs:delegated")
+}
+
+@Test func bindMount_dockerFlag_consistent() {
+    let mount = BindMount(
+        hostPath: "/data",
+        containerPath: "/mnt/data",
+        readOnly: false,
+        consistency: .consistent
+    )
+    #expect(mount.dockerFlag == "/data:/mnt/data:consistent")
+}
+
+@Test func bindMount_dockerFlag_readOnlyWithConsistency() {
+    let mount = BindMount(
+        hostPath: "/host/readonly",
+        containerPath: "/readonly",
+        readOnly: true,
+        consistency: .delegated
+    )
+    #expect(mount.dockerFlag == "/host/readonly:/readonly:ro,delegated")
+}
+
+@Test func bindMount_conformsToHashable() {
+    let mount1 = BindMount(hostPath: "/data", containerPath: "/mnt/data")
+    let mount2 = BindMount(hostPath: "/data", containerPath: "/mnt/data")
+    let mount3 = BindMount(hostPath: "/other", containerPath: "/mnt/data")
+
+    #expect(mount1 == mount2)
+    #expect(mount1 != mount3)
+}
+
+@Test func bindMount_readOnly_defaultsToFalse() {
+    let mount = BindMount(hostPath: "/test", containerPath: "/test")
+    #expect(mount.readOnly == false)
+}
+
+@Test func bindMount_consistency_defaultsToDefault() {
+    let mount = BindMount(hostPath: "/test", containerPath: "/test")
+    #expect(mount.consistency == .default)
+}
+
+@Test func bindMountConsistency_rawValues() {
+    #expect(BindMountConsistency.default.rawValue == "")
+    #expect(BindMountConsistency.cached.rawValue == "cached")
+    #expect(BindMountConsistency.delegated.rawValue == "delegated")
+    #expect(BindMountConsistency.consistent.rawValue == "consistent")
+}
+
+// MARK: - ContainerRequest BindMount Tests
+
+@Test func containerRequest_withBindMount_addsMount() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withBindMount(hostPath: "/tmp/test", containerPath: "/test")
+
+    #expect(request.bindMounts.count == 1)
+    #expect(request.bindMounts[0].hostPath == "/tmp/test")
+    #expect(request.bindMounts[0].containerPath == "/test")
+    #expect(request.bindMounts[0].readOnly == false)
+}
+
+@Test func containerRequest_withBindMount_readOnly() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withBindMount(hostPath: "/config", containerPath: "/etc/config", readOnly: true)
+
+    #expect(request.bindMounts.count == 1)
+    #expect(request.bindMounts[0].readOnly == true)
+}
+
+@Test func containerRequest_withBindMount_consistency() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withBindMount(
+            hostPath: "/src",
+            containerPath: "/app/src",
+            readOnly: false,
+            consistency: .cached
+        )
+
+    #expect(request.bindMounts.count == 1)
+    #expect(request.bindMounts[0].consistency == .cached)
+}
+
+@Test func containerRequest_withBindMount_multiple() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withBindMount(hostPath: "/config", containerPath: "/etc/config", readOnly: true)
+        .withBindMount(hostPath: "/data", containerPath: "/data")
+        .withBindMount(hostPath: "/logs", containerPath: "/logs", consistency: .delegated)
+
+    #expect(request.bindMounts.count == 3)
+    #expect(request.bindMounts.contains(where: { $0.hostPath == "/config" }))
+    #expect(request.bindMounts.contains(where: { $0.hostPath == "/data" }))
+    #expect(request.bindMounts.contains(where: { $0.hostPath == "/logs" }))
+}
+
+@Test func containerRequest_withBindMount_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withBindMount(hostPath: "/data", containerPath: "/mnt/data")
+
+    #expect(original.bindMounts.isEmpty)
+    #expect(modified.bindMounts.count == 1)
+}
+
+@Test func containerRequest_withBindMountStruct_addsDirectly() {
+    let mount = BindMount(
+        hostPath: "/shared",
+        containerPath: "/mnt/shared",
+        readOnly: true,
+        consistency: .cached
+    )
+    let request = ContainerRequest(image: "alpine:3")
+        .withBindMount(mount)
+
+    #expect(request.bindMounts.count == 1)
+    #expect(request.bindMounts[0] == mount)
+}
+
+@Test func containerRequest_bindMounts_startsEmpty() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.bindMounts.isEmpty)
+}
