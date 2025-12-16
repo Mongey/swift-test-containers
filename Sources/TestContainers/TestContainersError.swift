@@ -21,6 +21,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case lifecycleHookFailed(phase: String, hookIndex: Int, underlyingError: Error)
     /// General lifecycle error
     case lifecycleError(String)
+    /// Docker image build from Dockerfile failed
+    case imageBuildFailed(dockerfile: String, context: String, exitCode: Int32, stdout: String, stderr: String)
 
     public var description: String {
         switch self {
@@ -58,6 +60,16 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             return "Lifecycle hook failed at phase '\(phase)' (hook index \(hookIndex)): \(underlyingError)"
         case let .lifecycleError(message):
             return "Lifecycle error: \(message)"
+        case let .imageBuildFailed(dockerfile, context, exitCode, stdout, stderr):
+            return """
+            Docker image build failed (exit \(exitCode))
+            Dockerfile: \(dockerfile)
+            Context: \(context)
+            stdout:
+            \(stdout)
+            stderr:
+            \(stderr)
+            """
         }
     }
 }

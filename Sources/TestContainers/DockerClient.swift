@@ -382,4 +382,81 @@ public struct DockerClient: Sendable {
         let output = try await runDocker(["inspect", id])
         return try ContainerInspection.parse(from: output.stdout)
     }
+
+    // MARK: - Image Build Operations
+
+    /// Build an image from a Dockerfile.
+    ///
+    /// - Parameters:
+    ///   - config: Dockerfile build configuration
+    ///   - tag: Image tag for the built image
+    /// - Returns: The image tag
+    /// - Throws: `TestContainersError.imageBuildFailed` if the build fails
+    func buildImage(_ config: ImageFromDockerfile, tag: String) async throws -> String {
+        let args = Self.buildImageArgs(config: config, tag: tag)
+        let output = try await runner.run(executable: dockerPath, arguments: args)
+
+        if output.exitCode != 0 {
+            throw TestContainersError.imageBuildFailed(
+                dockerfile: config.dockerfilePath,
+                context: config.buildContext,
+                exitCode: output.exitCode,
+                stdout: output.stdout,
+                stderr: output.stderr
+            )
+        }
+
+        return tag
+    }
+
+    /// Remove an image by tag.
+    ///
+    /// - Parameter tag: The image tag to remove
+    /// - Throws: `TestContainersError.commandFailed` if removal fails
+    func removeImage(_ tag: String) async throws {
+        // Use -f to force removal, ignoring errors if image doesn't exist
+        _ = try? await runDocker(["rmi", "-f", tag])
+    }
+
+    /// Build the docker build command arguments from an ImageFromDockerfile config.
+    ///
+    /// This is exposed as a static method for testing purposes.
+    ///
+    /// - Parameters:
+    ///   - config: The Dockerfile build configuration
+    ///   - tag: The image tag to use
+    /// - Returns: Array of command line arguments for docker build
+    static func buildImageArgs(config: ImageFromDockerfile, tag: String) -> [String] {
+        var args: [String] = ["build"]
+
+        // Add tag
+        args += ["-t", tag]
+
+        // Add dockerfile path
+        args += ["-f", config.dockerfilePath]
+
+        // Add build arguments (sorted for deterministic output)
+        for (key, value) in config.buildArgs.sorted(by: { $0.key < $1.key }) {
+            args += ["--build-arg", "\(key)=\(value)"]
+        }
+
+        // Add target stage if specified
+        if let target = config.targetStage {
+            args += ["--target", target]
+        }
+
+        // Add cache options
+        if config.noCache {
+            args.append("--no-cache")
+        }
+
+        if config.pullBaseImages {
+            args.append("--pull")
+        }
+
+        // Add build context (must be last)
+        args.append(config.buildContext)
+
+        return args
+    }
 }
