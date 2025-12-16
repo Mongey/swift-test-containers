@@ -89,7 +89,9 @@ struct ProcessRunner: Sendable {
                             if Task.isCancelled {
                                 break
                             }
-                            continuation.yield(line)
+                            // Trim trailing whitespace (lines include line endings)
+                            let trimmed = line.trimmingCharacters(in: .newlines)
+                            continuation.yield(trimmed)
                         }
                         return 0 // Return value for the body closure
                     }

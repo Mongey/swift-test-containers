@@ -60,7 +60,7 @@ public actor Container {
     ///     }
     /// }
     /// ```
-    public func streamLogs(options: LogStreamOptions = .default) -> AsyncThrowingStream<LogEntry, Error> {
+    public nonisolated func streamLogs(options: LogStreamOptions = .default) -> AsyncThrowingStream<LogEntry, Error> {
         docker.streamLogs(id: id, options: options)
     }
 
