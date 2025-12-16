@@ -200,6 +200,14 @@ public struct ContainerRequest: Sendable, Hashable {
     public var healthCheck: HealthCheckConfig?
     public var retryPolicy: RetryPolicy?
 
+    // Lifecycle hooks
+    public var preStartHooks: [LifecycleHook]
+    public var postStartHooks: [LifecycleHook]
+    public var preStopHooks: [LifecycleHook]
+    public var postStopHooks: [LifecycleHook]
+    public var preTerminateHooks: [LifecycleHook]
+    public var postTerminateHooks: [LifecycleHook]
+
     public init(image: String) {
         self.image = image
         self.name = nil
@@ -214,6 +222,12 @@ public struct ContainerRequest: Sendable, Hashable {
         self.host = "127.0.0.1"
         self.healthCheck = nil
         self.retryPolicy = nil
+        self.preStartHooks = []
+        self.postStartHooks = []
+        self.preStopHooks = []
+        self.postStopHooks = []
+        self.preTerminateHooks = []
+        self.postTerminateHooks = []
     }
 
     public func withName(_ name: String) -> Self {
@@ -429,6 +443,74 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withRetry(_ policy: RetryPolicy) -> Self {
         var copy = self
         copy.retryPolicy = policy
+        return copy
+    }
+
+    // MARK: - Lifecycle Hooks
+
+    /// Adds a pre-start hook that runs before the container is created.
+    /// - Parameter action: Async action to execute
+    /// - Returns: Updated ContainerRequest with the hook added
+    public func onPreStart(_ action: @escaping @Sendable (LifecycleContext) async throws -> Void) -> Self {
+        withLifecycleHook(LifecycleHook(action), phase: .preStart)
+    }
+
+    /// Adds a post-start hook that runs after the container has started and is ready.
+    /// - Parameter action: Async action to execute
+    /// - Returns: Updated ContainerRequest with the hook added
+    public func onPostStart(_ action: @escaping @Sendable (LifecycleContext) async throws -> Void) -> Self {
+        withLifecycleHook(LifecycleHook(action), phase: .postStart)
+    }
+
+    /// Adds a pre-stop hook that runs before the container is stopped.
+    /// - Parameter action: Async action to execute
+    /// - Returns: Updated ContainerRequest with the hook added
+    public func onPreStop(_ action: @escaping @Sendable (LifecycleContext) async throws -> Void) -> Self {
+        withLifecycleHook(LifecycleHook(action), phase: .preStop)
+    }
+
+    /// Adds a post-stop hook that runs after the container has stopped.
+    /// - Parameter action: Async action to execute
+    /// - Returns: Updated ContainerRequest with the hook added
+    public func onPostStop(_ action: @escaping @Sendable (LifecycleContext) async throws -> Void) -> Self {
+        withLifecycleHook(LifecycleHook(action), phase: .postStop)
+    }
+
+    /// Adds a pre-terminate hook that runs before the container is terminated/removed.
+    /// - Parameter action: Async action to execute
+    /// - Returns: Updated ContainerRequest with the hook added
+    public func onPreTerminate(_ action: @escaping @Sendable (LifecycleContext) async throws -> Void) -> Self {
+        withLifecycleHook(LifecycleHook(action), phase: .preTerminate)
+    }
+
+    /// Adds a post-terminate hook that runs after the container has been terminated/removed.
+    /// - Parameter action: Async action to execute
+    /// - Returns: Updated ContainerRequest with the hook added
+    public func onPostTerminate(_ action: @escaping @Sendable (LifecycleContext) async throws -> Void) -> Self {
+        withLifecycleHook(LifecycleHook(action), phase: .postTerminate)
+    }
+
+    /// Adds a lifecycle hook for a specific phase.
+    /// - Parameters:
+    ///   - hook: The lifecycle hook to add
+    ///   - phase: The phase when the hook should execute
+    /// - Returns: Updated ContainerRequest with the hook added
+    public func withLifecycleHook(_ hook: LifecycleHook, phase: LifecyclePhase) -> Self {
+        var copy = self
+        switch phase {
+        case .preStart:
+            copy.preStartHooks.append(hook)
+        case .postStart:
+            copy.postStartHooks.append(hook)
+        case .preStop:
+            copy.preStopHooks.append(hook)
+        case .postStop:
+            copy.postStopHooks.append(hook)
+        case .preTerminate:
+            copy.preTerminateHooks.append(hook)
+        case .postTerminate:
+            copy.postTerminateHooks.append(hook)
+        }
         return copy
     }
 }

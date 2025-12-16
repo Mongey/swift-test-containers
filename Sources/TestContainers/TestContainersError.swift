@@ -17,6 +17,10 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case execCommandFailed(command: [String], exitCode: Int32, stdout: String, stderr: String, containerID: String)
     /// Invalid input provided to a function
     case invalidInput(String)
+    /// A lifecycle hook failed during execution
+    case lifecycleHookFailed(phase: String, hookIndex: Int, underlyingError: Error)
+    /// General lifecycle error
+    case lifecycleError(String)
 
     public var description: String {
         switch self {
@@ -50,6 +54,10 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             """
         case let .invalidInput(message):
             return "Invalid input: \(message)"
+        case let .lifecycleHookFailed(phase, hookIndex, underlyingError):
+            return "Lifecycle hook failed at phase '\(phase)' (hook index \(hookIndex)): \(underlyingError)"
+        case let .lifecycleError(message):
+            return "Lifecycle error: \(message)"
         }
     }
 }

@@ -9,19 +9,66 @@ public func withContainer<T>(
         throw TestContainersError.dockerNotAvailable("`docker` CLI not found or Docker engine not running.")
     }
 
-    let container = try await retryableContainerStartup(request, docker: docker)
+    // PreStart hooks - run before container creation
+    let preStartContext = LifecycleContext(container: nil, request: request, docker: docker)
+    try await executeLifecycleHooks(request.preStartHooks, context: preStartContext, phase: .preStart)
+
+    let container: Container
+    do {
+        container = try await retryableContainerStartup(request, docker: docker)
+    } catch {
+        // PreStart succeeded but container creation failed - no cleanup needed
+        throw error
+    }
+
+    // PostStart hooks - run after container is ready
+    let postStartContext = LifecycleContext(container: container, request: request, docker: docker)
+    do {
+        try await executeLifecycleHooks(request.postStartHooks, context: postStartContext, phase: .postStart)
+    } catch {
+        // PostStart hook failed - cleanup container and run terminate hooks
+        try? await terminateWithHooks(container: container, request: request, docker: docker)
+        throw error
+    }
 
     return try await withTaskCancellationHandler {
         do {
             let result = try await operation(container)
-            try await container.terminate()
+            try await terminateWithHooks(container: container, request: request, docker: docker)
             return result
         } catch {
-            try? await container.terminate()
+            try? await terminateWithHooks(container: container, request: request, docker: docker)
             throw error
         }
     } onCancel: {
-        Task { try? await container.terminate() }
+        Task { try? await terminateWithHooks(container: container, request: request, docker: docker) }
+    }
+}
+
+/// Terminates a container, running lifecycle hooks before and after.
+/// Errors in hooks are logged but don't prevent termination.
+private func terminateWithHooks(
+    container: Container,
+    request: ContainerRequest,
+    docker: DockerClient
+) async throws {
+    let context = LifecycleContext(container: container, request: request, docker: docker)
+
+    // PreTerminate hooks - errors are logged but don't prevent termination
+    do {
+        try await executeLifecycleHooks(request.preTerminateHooks, context: context, phase: .preTerminate)
+    } catch {
+        // Log but continue with termination
+    }
+
+    // Actually terminate the container
+    try await container.terminate()
+
+    // PostTerminate hooks - errors are logged but don't affect the result
+    do {
+        try await executeLifecycleHooks(request.postTerminateHooks, context: context, phase: .postTerminate)
+    } catch {
+        // Log but don't fail
     }
 }
 
