@@ -3,6 +3,7 @@ import Foundation
 public func withContainer<T>(
     _ request: ContainerRequest,
     docker: DockerClient = DockerClient(),
+    testName: String? = nil,
     operation: @Sendable (Container) async throws -> T
 ) async throws -> T {
     if !(await docker.isAvailable()) {
@@ -49,19 +50,40 @@ public func withContainer<T>(
         throw error
     }
 
+    // Create artifact collector based on request configuration
+    let artifactCollector = ArtifactCollector(config: request.artifactConfig)
+
     return try await withTaskCancellationHandler {
         do {
             let result = try await operation(container)
+            // Collect artifacts if trigger is .always (even on success)
+            _ = await artifactCollector.collect(
+                container: container,
+                testName: testName,
+                error: nil
+            )
             try await terminateWithHooks(container: container, request: request, docker: docker)
             await cleanupBuiltImage(tag: builtImageTag, docker: docker)
             return result
         } catch {
+            // Collect artifacts on failure
+            _ = await artifactCollector.collect(
+                container: container,
+                testName: testName,
+                error: error
+            )
             try? await terminateWithHooks(container: container, request: request, docker: docker)
             await cleanupBuiltImage(tag: builtImageTag, docker: docker)
             throw error
         }
     } onCancel: {
         Task {
+            // Collect artifacts on cancellation (treated as failure)
+            _ = await artifactCollector.collect(
+                container: container,
+                testName: testName,
+                error: CancellationError()
+            )
             try? await terminateWithHooks(container: container, request: request, docker: docker)
             await cleanupBuiltImage(tag: builtImageTag, docker: docker)
         }

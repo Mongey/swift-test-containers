@@ -555,3 +555,19 @@ import Testing
     // Hashable conformance should work
     #expect(request1.hashValue == request2.hashValue)
 }
+
+// MARK: - withContainer Signature Tests
+
+@Test func withContainer_acceptsTestNameParameter() async throws {
+    // This test verifies the function signature accepts testName
+    // We can't actually run it without Docker, but we verify it compiles
+    func verifySignature() async throws {
+        let request = ContainerRequest(image: "alpine:3")
+        // The following line should compile with the new signature
+        _ = try await withContainer(request, testName: "MyTests.testExample") { _ in
+            "result"
+        }
+    }
+    // This test verifies the function exists with the right signature
+    // Just checking it compiles is the test
+}
