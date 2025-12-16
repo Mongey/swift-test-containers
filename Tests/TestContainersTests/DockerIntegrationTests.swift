@@ -345,3 +345,151 @@ import TestContainers
         #expect(logs.contains("Multi-part entrypoint"))
     }
 }
+
+// MARK: - Artifact Collection Integration Tests
+
+@Test func artifactCollection_onFailure_collectsArtifacts() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let artifactDir = "/tmp/testcontainers-artifact-test-\(UUID().uuidString)"
+    let config = ArtifactConfig()
+        .withOutputDirectory(artifactDir)
+        .withTrigger(.onFailure)
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["/bin/sh", "-c", "echo 'Test artifact output' && sleep 2"])
+        .waitingFor(.logContains("Test artifact output"))
+        .withArtifacts(config)
+
+    // Intentionally fail the operation
+    do {
+        try await withContainer(request, testName: "ArtifactTests.testFailure") { _ in
+            throw TestContainersError.timeout("Intentional test failure")
+        }
+        Issue.record("Expected error to be thrown")
+    } catch {
+        // Error expected
+    }
+
+    // Verify artifacts were collected
+    let fm = FileManager.default
+    let artifactTestDir = "\(artifactDir)/ArtifactTests.testFailure"
+    #expect(fm.fileExists(atPath: artifactTestDir))
+
+    // Cleanup
+    try? fm.removeItem(atPath: artifactDir)
+}
+
+@Test func artifactCollection_always_collectsOnSuccess() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let artifactDir = "/tmp/testcontainers-artifact-test-\(UUID().uuidString)"
+    let config = ArtifactConfig()
+        .withOutputDirectory(artifactDir)
+        .withTrigger(.always)
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["/bin/sh", "-c", "echo 'Always collect test' && sleep 2"])
+        .waitingFor(.logContains("Always collect test"))
+        .withArtifacts(config)
+
+    try await withContainer(request, testName: "ArtifactTests.testAlways") { _ in
+        // Success path
+    }
+
+    // Verify artifacts were collected even on success
+    let fm = FileManager.default
+    let artifactTestDir = "\(artifactDir)/ArtifactTests.testAlways"
+    #expect(fm.fileExists(atPath: artifactTestDir))
+
+    // Cleanup
+    try? fm.removeItem(atPath: artifactDir)
+}
+
+@Test func artifactCollection_disabled_doesNotCollect() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let artifactDir = "/tmp/testcontainers-artifact-test-\(UUID().uuidString)"
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["/bin/sh", "-c", "echo 'No collect test' && sleep 2"])
+        .waitingFor(.logContains("No collect test"))
+        .withoutArtifacts()
+
+    // Intentionally fail the operation
+    do {
+        try await withContainer(request, testName: "ArtifactTests.testDisabled") { _ in
+            throw TestContainersError.timeout("Intentional test failure")
+        }
+        Issue.record("Expected error to be thrown")
+    } catch {
+        // Error expected
+    }
+
+    // Verify no artifacts were collected
+    let fm = FileManager.default
+    let artifactTestDir = "\(artifactDir)/ArtifactTests.testDisabled"
+    #expect(!fm.fileExists(atPath: artifactTestDir))
+}
+
+@Test func artifactCollection_collectsLogsAndMetadata() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let artifactDir = "/tmp/testcontainers-artifact-test-\(UUID().uuidString)"
+    let config = ArtifactConfig()
+        .withOutputDirectory(artifactDir)
+        .withTrigger(.onFailure)
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["/bin/sh", "-c", "echo 'Logs and metadata test' && sleep 2"])
+        .waitingFor(.logContains("Logs and metadata test"))
+        .withEnvironment(["TEST_VAR": "test_value"])
+        .withArtifacts(config)
+
+    // Intentionally fail the operation
+    do {
+        try await withContainer(request, testName: "ArtifactTests.testLogsAndMetadata") { _ in
+            throw TestContainersError.timeout("Intentional test failure")
+        }
+    } catch {
+        // Error expected
+    }
+
+    // Verify artifact files were created
+    let fm = FileManager.default
+    let artifactTestDir = "\(artifactDir)/ArtifactTests.testLogsAndMetadata"
+
+    // Find the artifact subdirectory (containerId_timestamp)
+    if let contents = try? fm.contentsOfDirectory(atPath: artifactTestDir), let subdir = contents.first {
+        let artifactSubdir = "\(artifactTestDir)/\(subdir)"
+
+        // Check logs file exists and contains output
+        let logsPath = "\(artifactSubdir)/logs.txt"
+        if fm.fileExists(atPath: logsPath),
+           let logsContent = try? String(contentsOfFile: logsPath, encoding: .utf8) {
+            #expect(logsContent.contains("Logs and metadata test"))
+        }
+
+        // Check metadata file exists
+        let metadataPath = "\(artifactSubdir)/metadata.json"
+        #expect(fm.fileExists(atPath: metadataPath))
+
+        // Check request file exists and contains environment
+        let requestPath = "\(artifactSubdir)/request.json"
+        if fm.fileExists(atPath: requestPath),
+           let requestContent = try? String(contentsOfFile: requestPath, encoding: .utf8) {
+            #expect(requestContent.contains("TEST_VAR"))
+        }
+
+        // Check error file exists
+        let errorPath = "\(artifactSubdir)/error.txt"
+        #expect(fm.fileExists(atPath: errorPath))
+    }
+
+    // Cleanup
+    try? fm.removeItem(atPath: artifactDir)
+}
