@@ -480,3 +480,78 @@ import Testing
         let _ = await collector.configuration
     }
 }
+
+// MARK: - ContainerRequest.withArtifacts Tests
+
+@Test func containerRequest_withArtifacts_default() {
+    let request = ContainerRequest(image: "redis:7")
+        .withArtifacts(.default)
+
+    #expect(request.artifactConfig.enabled == true)
+    #expect(request.artifactConfig.outputDirectory == ".testcontainers-artifacts")
+}
+
+@Test func containerRequest_withArtifacts_custom() {
+    let config = ArtifactConfig()
+        .withOutputDirectory("/custom/path")
+        .withTrigger(.always)
+
+    let request = ContainerRequest(image: "redis:7")
+        .withArtifacts(config)
+
+    #expect(request.artifactConfig.outputDirectory == "/custom/path")
+    if case .always = request.artifactConfig.trigger {
+        // Expected
+    } else {
+        Issue.record("Expected always trigger")
+    }
+}
+
+@Test func containerRequest_withoutArtifacts() {
+    let request = ContainerRequest(image: "redis:7")
+        .withoutArtifacts()
+
+    #expect(request.artifactConfig.enabled == false)
+}
+
+@Test func containerRequest_artifactConfig_defaultValue() {
+    let request = ContainerRequest(image: "redis:7")
+
+    // Default should be enabled with onFailure trigger
+    #expect(request.artifactConfig.enabled == true)
+    if case .onFailure = request.artifactConfig.trigger {
+        // Expected
+    } else {
+        Issue.record("Expected onFailure as default trigger")
+    }
+}
+
+@Test func containerRequest_withArtifacts_preservesOtherConfig() {
+    let request = ContainerRequest(image: "redis:7")
+        .withExposedPort(6379)
+        .withEnvironment(["KEY": "value"])
+        .withArtifacts(.disabled)
+
+    #expect(request.image == "redis:7")
+    #expect(request.ports.count == 1)
+    #expect(request.environment["KEY"] == "value")
+    #expect(request.artifactConfig.enabled == false)
+}
+
+@Test func containerRequest_withArtifacts_returnsNewInstance() {
+    let original = ContainerRequest(image: "redis:7")
+    let modified = original.withArtifacts(.disabled)
+
+    #expect(original.artifactConfig.enabled == true)
+    #expect(modified.artifactConfig.enabled == false)
+}
+
+@Test func containerRequest_artifactConfig_isHashable() {
+    let request1 = ContainerRequest(image: "redis:7")
+        .withArtifacts(.default)
+    let request2 = ContainerRequest(image: "redis:7")
+        .withArtifacts(.default)
+
+    // Hashable conformance should work
+    #expect(request1.hashValue == request2.hashValue)
+}

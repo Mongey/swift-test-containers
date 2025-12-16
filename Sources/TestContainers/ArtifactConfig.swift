@@ -9,7 +9,7 @@ import Foundation
 ///     .withTrigger(.always)
 ///     .withRetentionPolicy(.keepLast(5))
 /// ```
-public struct ArtifactConfig: Sendable {
+public struct ArtifactConfig: Sendable, Hashable {
     /// Enable or disable artifact collection
     public var enabled: Bool
 
@@ -32,7 +32,7 @@ public struct ArtifactConfig: Sendable {
     public var retentionPolicy: RetentionPolicy
 
     /// When to collect artifacts.
-    public enum CollectionTrigger: Sendable {
+    public enum CollectionTrigger: Sendable, Hashable {
         /// Only collect on test failure (default)
         case onFailure
         /// Always collect (even on success)
@@ -42,7 +42,7 @@ public struct ArtifactConfig: Sendable {
     }
 
     /// How long to keep artifacts.
-    public enum RetentionPolicy: Sendable {
+    public enum RetentionPolicy: Sendable, Hashable {
         /// Keep all artifacts forever
         case keepAll
         /// Keep only the last N artifact directories

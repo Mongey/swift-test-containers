@@ -200,6 +200,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var healthCheck: HealthCheckConfig?
     public var retryPolicy: RetryPolicy?
     public var imageFromDockerfile: ImageFromDockerfile?
+    public var artifactConfig: ArtifactConfig
 
     // Lifecycle hooks
     public var preStartHooks: [LifecycleHook]
@@ -224,6 +225,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.healthCheck = nil
         self.retryPolicy = nil
         self.imageFromDockerfile = nil
+        self.artifactConfig = .default
         self.preStartHooks = []
         self.postStartHooks = []
         self.preStopHooks = []
@@ -255,6 +257,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.healthCheck = nil
         self.retryPolicy = nil
         self.imageFromDockerfile = imageFromDockerfile
+        self.artifactConfig = .default
         self.preStartHooks = []
         self.postStartHooks = []
         self.preStopHooks = []
@@ -563,6 +566,42 @@ public struct ContainerRequest: Sendable, Hashable {
         copy.imageFromDockerfile = dockerfileImage
         copy.image = "testcontainers-swift-\(UUID().uuidString.lowercased()):latest"
         return copy
+    }
+
+    // MARK: - Artifact Configuration
+
+    /// Configure artifact collection for this container.
+    ///
+    /// Artifacts include container logs, metadata, and request configuration,
+    /// which are saved when tests fail to aid debugging.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "postgres:15")
+    ///     .withArtifacts(ArtifactConfig()
+    ///         .withOutputDirectory("/tmp/test-artifacts")
+    ///         .withTrigger(.always))
+    /// ```
+    ///
+    /// - Parameter config: The artifact configuration to use
+    /// - Returns: Updated ContainerRequest with artifact configuration
+    public func withArtifacts(_ config: ArtifactConfig) -> Self {
+        var copy = self
+        copy.artifactConfig = config
+        return copy
+    }
+
+    /// Disable artifact collection for this container.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "redis:7")
+    ///     .withoutArtifacts()  // No artifacts will be collected
+    /// ```
+    ///
+    /// - Returns: Updated ContainerRequest with artifacts disabled
+    public func withoutArtifacts() -> Self {
+        withArtifacts(.disabled)
     }
 
     // MARK: - Session Labels
