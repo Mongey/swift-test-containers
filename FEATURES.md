@@ -122,8 +122,8 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 Pre-configured containers with typed APIs, connection strings, and sensible defaults.
 
 **Databases**
-- [ ] `PostgresContainer` (connection string, init scripts, config)
-- [x] `MySQLContainer` / `MariaDBContainer` - MySQL and MariaDB with connection strings
+- [x] `PostgresContainer` - PostgreSQL with connection string helper, pg_isready wait
+- [ ] `MySQLContainer` / `MariaDBContainer`
 - [ ] `MongoDBContainer`
 - [ ] `RedisContainer` (connection string, TLS support)
 
@@ -184,7 +184,7 @@ Feature design is informed by [testcontainers-go](https://github.com/testcontain
 7. ~~Composite wait strategies~~ ✓
 
 **Modules (First Set)**
-8. `PostgresContainer` with connection string helper
+8. ~~`PostgresContainer` with connection string helper~~ ✓
 9. `RedisContainer` with connection string helper
 
 **Reliability**
