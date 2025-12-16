@@ -1,5 +1,29 @@
 import Foundation
 
+/// Represents a named volume mount configuration for Docker containers.
+public struct VolumeMount: Hashable, Sendable {
+    /// The name of the Docker volume.
+    public var volumeName: String
+    /// The absolute path inside the container where the volume is mounted.
+    public var containerPath: String
+    /// Whether the volume is mounted as read-only.
+    public var readOnly: Bool
+
+    public init(volumeName: String, containerPath: String, readOnly: Bool = false) {
+        self.volumeName = volumeName
+        self.containerPath = containerPath
+        self.readOnly = readOnly
+    }
+
+    /// Converts to Docker CLI flag format: "volumeName:containerPath" or "volumeName:containerPath:ro"
+    var dockerFlag: String {
+        if readOnly {
+            return "\(volumeName):\(containerPath):ro"
+        }
+        return "\(volumeName):\(containerPath)"
+    }
+}
+
 public struct ContainerPort: Hashable, Sendable {
     public var containerPort: Int
     public var hostPort: Int?
@@ -106,6 +130,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var environment: [String: String]
     public var labels: [String: String]
     public var ports: [ContainerPort]
+    public var volumes: [VolumeMount]
     public var waitStrategy: WaitStrategy
     public var host: String
     public var healthCheck: HealthCheckConfig?
@@ -118,6 +143,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.environment = [:]
         self.labels = ["testcontainers.swift": "true"]
         self.ports = []
+        self.volumes = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
@@ -151,6 +177,27 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withExposedPort(_ containerPort: Int, hostPort: Int? = nil) -> Self {
         var copy = self
         copy.ports.append(ContainerPort(containerPort: containerPort, hostPort: hostPort))
+        return copy
+    }
+
+    /// Mounts a named Docker volume into the container.
+    /// - Parameters:
+    ///   - volumeName: Docker volume name (must already exist or will be created)
+    ///   - containerPath: Absolute path inside container where the volume is mounted
+    ///   - readOnly: Whether to mount as read-only (default: false)
+    /// - Returns: Updated ContainerRequest
+    public func withVolume(_ volumeName: String, mountedAt containerPath: String, readOnly: Bool = false) -> Self {
+        var copy = self
+        copy.volumes.append(VolumeMount(volumeName: volumeName, containerPath: containerPath, readOnly: readOnly))
+        return copy
+    }
+
+    /// Mounts a volume using a VolumeMount configuration.
+    /// - Parameter mount: The VolumeMount configuration to add
+    /// - Returns: Updated ContainerRequest
+    public func withVolumeMount(_ mount: VolumeMount) -> Self {
+        var copy = self
+        copy.volumes.append(mount)
         return copy
     }
 

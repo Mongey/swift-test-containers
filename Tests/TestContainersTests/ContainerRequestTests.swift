@@ -256,3 +256,83 @@ import Testing
     #expect(request1 == request2)
     #expect(request1 != request3)
 }
+
+// MARK: - VolumeMount Tests
+
+@Test func volumeMount_dockerFlag_readWrite() {
+    let mount = VolumeMount(volumeName: "data", containerPath: "/mnt/data")
+    #expect(mount.dockerFlag == "data:/mnt/data")
+}
+
+@Test func volumeMount_dockerFlag_readOnly() {
+    let mount = VolumeMount(volumeName: "config", containerPath: "/etc/app", readOnly: true)
+    #expect(mount.dockerFlag == "config:/etc/app:ro")
+}
+
+@Test func volumeMount_conformsToHashable() {
+    let mount1 = VolumeMount(volumeName: "data", containerPath: "/data")
+    let mount2 = VolumeMount(volumeName: "data", containerPath: "/data")
+    let mount3 = VolumeMount(volumeName: "other", containerPath: "/data")
+
+    #expect(mount1 == mount2)
+    #expect(mount1 != mount3)
+}
+
+@Test func volumeMount_readOnly_defaultsToFalse() {
+    let mount = VolumeMount(volumeName: "test", containerPath: "/test")
+    #expect(mount.readOnly == false)
+}
+
+// MARK: - ContainerRequest Volume Tests
+
+@Test func containerRequest_withVolume_addsVolumeMount() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withVolume("data", mountedAt: "/data")
+
+    #expect(request.volumes.count == 1)
+    #expect(request.volumes[0].volumeName == "data")
+    #expect(request.volumes[0].containerPath == "/data")
+    #expect(request.volumes[0].readOnly == false)
+}
+
+@Test func containerRequest_withVolume_readOnly() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withVolume("config", mountedAt: "/etc/config", readOnly: true)
+
+    #expect(request.volumes.count == 1)
+    #expect(request.volumes[0].readOnly == true)
+}
+
+@Test func containerRequest_withVolume_multipleVolumes() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withVolume("data", mountedAt: "/data")
+        .withVolume("logs", mountedAt: "/logs", readOnly: true)
+        .withVolume("cache", mountedAt: "/cache")
+
+    #expect(request.volumes.count == 3)
+    #expect(request.volumes.contains(VolumeMount(volumeName: "data", containerPath: "/data")))
+    #expect(request.volumes.contains(VolumeMount(volumeName: "logs", containerPath: "/logs", readOnly: true)))
+    #expect(request.volumes.contains(VolumeMount(volumeName: "cache", containerPath: "/cache")))
+}
+
+@Test func containerRequest_withVolume_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withVolume("data", mountedAt: "/data")
+
+    #expect(original.volumes.isEmpty)
+    #expect(modified.volumes.count == 1)
+}
+
+@Test func containerRequest_withVolumeMount_addsDirectly() {
+    let mount = VolumeMount(volumeName: "shared", containerPath: "/mnt/shared", readOnly: true)
+    let request = ContainerRequest(image: "alpine:3")
+        .withVolumeMount(mount)
+
+    #expect(request.volumes.count == 1)
+    #expect(request.volumes[0] == mount)
+}
+
+@Test func containerRequest_volumes_startsEmpty() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.volumes.isEmpty)
+}
