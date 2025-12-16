@@ -132,6 +132,21 @@ public struct TestContainersCleanupConfig: Sendable {
         return copy
     }
 
+    /// Build the label filters for cleanup operations.
+    ///
+    /// Combines the base `testcontainers.swift=true` label with
+    /// any custom label filters. Custom filters can override the
+    /// base label if desired.
+    ///
+    /// - Returns: Dictionary of label key-value pairs for filtering
+    public func buildLabelFilters() -> [String: String] {
+        var filters = ["testcontainers.swift": "true"]
+        for (key, value) in customLabelFilters {
+            filters[key] = value
+        }
+        return filters
+    }
+
     // MARK: - Private Helpers
 
     private static func parseBool(_ value: String?) -> Bool {

@@ -531,3 +531,137 @@ import Testing
 
     #expect(item.firstName == "test-container")
 }
+
+// MARK: - TestContainersCleanup Actor Tests
+
+@Test func testContainersCleanup_initializesWithDefaultConfig() async {
+    let cleanup = TestContainersCleanup()
+
+    // Verify default configuration is applied
+    let config = await cleanup.configuration
+    #expect(config.ageThresholdSeconds == 600)
+    #expect(config.automaticCleanupEnabled == false)
+    #expect(config.dryRun == false)
+}
+
+@Test func testContainersCleanup_initializesWithCustomConfig() async {
+    let customConfig = TestContainersCleanupConfig()
+        .withAgeThreshold(300)
+        .withDryRun(true)
+        .withVerbose(true)
+
+    let cleanup = TestContainersCleanup(config: customConfig)
+
+    let config = await cleanup.configuration
+    #expect(config.ageThresholdSeconds == 300)
+    #expect(config.dryRun == true)
+    #expect(config.verbose == true)
+}
+
+@Test func testContainersCleanup_conformsToSendable() async {
+    let cleanup = TestContainersCleanup()
+
+    // Verify we can pass it across concurrency boundaries
+    Task {
+        let _ = await cleanup.configuration
+    }
+}
+
+// MARK: - Age Calculation Tests
+
+@Test func containerListItem_ageCalculation() {
+    let now = Date()
+    let fiveMinutesAgo = now.addingTimeInterval(-300)
+    let timestamp = Int(fiveMinutesAgo.timeIntervalSince1970)
+
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/test",
+        image: "alpine",
+        created: timestamp,
+        labels: "",
+        state: "running"
+    )
+
+    let age = now.timeIntervalSince(item.createdDate)
+
+    // Age should be approximately 300 seconds (allowing for small timing differences)
+    #expect(age >= 299)
+    #expect(age <= 301)
+}
+
+@Test func containerListItem_createdDate() {
+    let timestamp = 1702000000  // Fixed timestamp
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/test",
+        image: "alpine",
+        created: timestamp,
+        labels: "",
+        state: "running"
+    )
+
+    let expected = Date(timeIntervalSince1970: TimeInterval(timestamp))
+    #expect(item.createdDate == expected)
+}
+
+// MARK: - Cleanup Build Label Filters Tests
+
+@Test func cleanupConfig_buildLabelFilters_includesBaseLabel() {
+    let config = TestContainersCleanupConfig()
+    let filters = config.buildLabelFilters()
+
+    #expect(filters["testcontainers.swift"] == "true")
+}
+
+@Test func cleanupConfig_buildLabelFilters_includesCustomFilters() {
+    let config = TestContainersCleanupConfig()
+        .withCustomLabelFilter("env", "test")
+        .withCustomLabelFilter("project", "myapp")
+
+    let filters = config.buildLabelFilters()
+
+    #expect(filters["testcontainers.swift"] == "true")
+    #expect(filters["env"] == "test")
+    #expect(filters["project"] == "myapp")
+}
+
+@Test func cleanupConfig_buildLabelFilters_customOverridesBase() {
+    let config = TestContainersCleanupConfig()
+        .withCustomLabelFilter("testcontainers.swift", "false")
+
+    let filters = config.buildLabelFilters()
+
+    // Custom filter overrides base
+    #expect(filters["testcontainers.swift"] == "false")
+}
+
+// MARK: - Convenience Function Tests
+
+@Test func cleanupOrphanedContainers_functionExists() async throws {
+    // This test verifies the convenience function signature
+    // Actual cleanup requires Docker, so we just verify it compiles
+    let config = TestContainersCleanupConfig()
+        .withDryRun(true)
+
+    // The function should exist and be callable
+    // (Will fail if Docker is not available, but that's expected)
+    do {
+        _ = try await cleanupOrphanedContainers(config: config)
+    } catch is CleanupError {
+        // Expected to fail with a CleanupError if Docker is not running
+    } catch {
+        // Also OK if it throws other errors
+    }
+}
+
+@Test func cleanupOrphanedContainers_withAgeThreshold_functionExists() async throws {
+    let config = TestContainersCleanupConfig()
+        .withDryRun(true)
+
+    do {
+        _ = try await cleanupOrphanedContainers(olderThan: 60, config: config)
+    } catch {
+        // Expected to fail without Docker
+    }
+}
