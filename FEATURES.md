@@ -123,7 +123,7 @@ Pre-configured containers with typed APIs, connection strings, and sensible defa
 
 **Databases**
 - [ ] `PostgresContainer` (connection string, init scripts, config)
-- [ ] `MySQLContainer` / `MariaDBContainer`
+- [x] `MySQLContainer` / `MariaDBContainer` - MySQL and MariaDB with connection strings
 - [ ] `MongoDBContainer`
 - [ ] `RedisContainer` (connection string, TLS support)
 
