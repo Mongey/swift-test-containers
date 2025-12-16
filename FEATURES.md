@@ -33,6 +33,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 
 **Container configuration**
 - [x] Volume mounts (named volumes) - `.withVolume(_:mountedAt:readOnly:)`
+- [x] Bind mounts (host path → container path) - `.withBindMount(hostPath:containerPath:readOnly:consistency:)`
 
 **Testing**
 - [x] Unit tests for request building
@@ -65,7 +66,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 
 **Container configuration**
 - [x] Volume mounts (named volumes) - implemented as `.withVolume(_:mountedAt:readOnly:)`
-- [ ] Bind mounts (host path → container path)
+- [x] Bind mounts (host path → container path) - implemented as `.withBindMount(hostPath:containerPath:readOnly:consistency:)`
 - [ ] Tmpfs mounts
 - [ ] Working directory (`--workdir`)
 - [ ] User / groups (`--user`)
@@ -138,7 +139,7 @@ Pre-configured containers with typed APIs, connection strings, and sensible defa
 **Other services**
 - [ ] `ElasticsearchContainer` / `OpenSearchContainer`
 - [x] `VaultContainer` - HashiCorp Vault for secrets management
-- [ ] `NginxContainer`
+- [x] `NginxContainer` - Nginx web server with static files and custom config support
 
 ---
 
@@ -178,7 +179,7 @@ Feature design is informed by [testcontainers-go](https://github.com/testcontain
 4. ~~Container inspection~~ ✓
 
 **Infrastructure**
-5. Bind mounts + volume mounts
+5. ~~Bind mounts~~ ✓ + ~~volume mounts~~ ✓
 6. Network creation + attachment + aliases
 7. ~~Composite wait strategies~~ ✓
 
