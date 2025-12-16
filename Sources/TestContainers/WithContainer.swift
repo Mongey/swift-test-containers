@@ -9,15 +9,32 @@ public func withContainer<T>(
         throw TestContainersError.dockerNotAvailable("`docker` CLI not found or Docker engine not running.")
     }
 
+    // Build image from Dockerfile if specified
+    let builtImageTag: String?
+    if let dockerfileConfig = request.imageFromDockerfile {
+        let tag = request.image  // Use the auto-generated tag from request
+        _ = try await docker.buildImage(dockerfileConfig, tag: tag)
+        builtImageTag = tag
+    } else {
+        builtImageTag = nil
+    }
+
     // PreStart hooks - run before container creation
     let preStartContext = LifecycleContext(container: nil, request: request, docker: docker)
-    try await executeLifecycleHooks(request.preStartHooks, context: preStartContext, phase: .preStart)
+    do {
+        try await executeLifecycleHooks(request.preStartHooks, context: preStartContext, phase: .preStart)
+    } catch {
+        // PreStart hook failed - clean up built image if any
+        await cleanupBuiltImage(tag: builtImageTag, docker: docker)
+        throw error
+    }
 
     let container: Container
     do {
         container = try await retryableContainerStartup(request, docker: docker)
     } catch {
-        // PreStart succeeded but container creation failed - no cleanup needed
+        // PreStart succeeded but container creation failed - clean up built image
+        await cleanupBuiltImage(tag: builtImageTag, docker: docker)
         throw error
     }
 
@@ -28,6 +45,7 @@ public func withContainer<T>(
     } catch {
         // PostStart hook failed - cleanup container and run terminate hooks
         try? await terminateWithHooks(container: container, request: request, docker: docker)
+        await cleanupBuiltImage(tag: builtImageTag, docker: docker)
         throw error
     }
 
@@ -35,13 +53,25 @@ public func withContainer<T>(
         do {
             let result = try await operation(container)
             try await terminateWithHooks(container: container, request: request, docker: docker)
+            await cleanupBuiltImage(tag: builtImageTag, docker: docker)
             return result
         } catch {
             try? await terminateWithHooks(container: container, request: request, docker: docker)
+            await cleanupBuiltImage(tag: builtImageTag, docker: docker)
             throw error
         }
     } onCancel: {
-        Task { try? await terminateWithHooks(container: container, request: request, docker: docker) }
+        Task {
+            try? await terminateWithHooks(container: container, request: request, docker: docker)
+            await cleanupBuiltImage(tag: builtImageTag, docker: docker)
+        }
+    }
+}
+
+/// Cleans up a built image if one was created.
+private func cleanupBuiltImage(tag: String?, docker: DockerClient) async {
+    if let tag = tag {
+        try? await docker.removeImage(tag)
     }
 }
 
