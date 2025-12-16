@@ -97,7 +97,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 **Image workflows**
 - [ ] Pull policy (always / if-missing / never)
 - [ ] Auth to private registries
-- [ ] Build image from Dockerfile (and pass build args)
+- [x] Build image from Dockerfile (and pass build args) - implemented as `ImageFromDockerfile` with builder pattern
 - [ ] Image preflight checks (inspect, existence)
 - [ ] Image substitutors (registry mirrors, custom hubs)
 
