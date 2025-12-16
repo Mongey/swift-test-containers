@@ -64,6 +64,11 @@ public struct DockerClient: Sendable {
             args += ["--label", "\(key)=\(value)"]
         }
 
+        // Add volume mounts sorted by volume name for deterministic ordering
+        for mount in request.volumes.sorted(by: { $0.volumeName < $1.volumeName }) {
+            args += ["-v", mount.dockerFlag]
+        }
+
         // Add health check configuration if specified
         if let healthCheck = request.healthCheck {
             let cmdString = healthCheck.command.joined(separator: " ")
