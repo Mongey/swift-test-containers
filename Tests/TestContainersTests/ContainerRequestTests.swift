@@ -655,3 +655,102 @@ import Testing
     #expect(request.labels["testcontainers.swift"] == "true")
     #expect(request.labels.count == 1)
 }
+
+// MARK: - ImageFromDockerfile Integration Tests
+
+@Test func containerRequest_initWithImageFromDockerfile_setsProperty() {
+    let dockerfile = ImageFromDockerfile(
+        dockerfilePath: "test/Dockerfile",
+        buildContext: "test"
+    )
+    let request = ContainerRequest(imageFromDockerfile: dockerfile)
+
+    #expect(request.imageFromDockerfile != nil)
+    #expect(request.imageFromDockerfile?.dockerfilePath == "test/Dockerfile")
+    #expect(request.imageFromDockerfile?.buildContext == "test")
+}
+
+@Test func containerRequest_initWithImageFromDockerfile_generatesUniqueImageTag() {
+    let dockerfile = ImageFromDockerfile()
+    let request = ContainerRequest(imageFromDockerfile: dockerfile)
+
+    #expect(request.image.hasPrefix("testcontainers-swift-"))
+    #expect(request.image.hasSuffix(":latest"))
+}
+
+@Test func containerRequest_initWithImageFromDockerfile_imageTagsAreUnique() {
+    let dockerfile = ImageFromDockerfile()
+    let request1 = ContainerRequest(imageFromDockerfile: dockerfile)
+    let request2 = ContainerRequest(imageFromDockerfile: dockerfile)
+
+    #expect(request1.image != request2.image)
+}
+
+@Test func containerRequest_initWithImageFromDockerfile_preservesDefaultLabels() {
+    let dockerfile = ImageFromDockerfile()
+    let request = ContainerRequest(imageFromDockerfile: dockerfile)
+
+    #expect(request.labels["testcontainers.swift"] == "true")
+}
+
+@Test func containerRequest_withImageFromDockerfile_builderMethod() {
+    let dockerfile = ImageFromDockerfile(dockerfilePath: "Dockerfile.dev")
+    let request = ContainerRequest(image: "ignored")
+        .withImageFromDockerfile(dockerfile)
+
+    #expect(request.imageFromDockerfile != nil)
+    #expect(request.imageFromDockerfile?.dockerfilePath == "Dockerfile.dev")
+    #expect(request.image.hasPrefix("testcontainers-swift-"))
+}
+
+@Test func containerRequest_withImageFromDockerfile_returnsNewInstance() {
+    let dockerfile = ImageFromDockerfile()
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withImageFromDockerfile(dockerfile)
+
+    #expect(original.imageFromDockerfile == nil)
+    #expect(modified.imageFromDockerfile != nil)
+}
+
+@Test func containerRequest_withImageFromDockerfile_chainsWithOtherMethods() {
+    let dockerfile = ImageFromDockerfile()
+        .withBuildArg("VERSION", "1.0")
+    let request = ContainerRequest(imageFromDockerfile: dockerfile)
+        .withExposedPort(8080)
+        .withEnvironment(["DEBUG": "true"])
+        .withLabel("app", "test")
+        .waitingFor(.tcpPort(8080))
+
+    #expect(request.imageFromDockerfile != nil)
+    #expect(request.ports.count == 1)
+    #expect(request.environment["DEBUG"] == "true")
+    #expect(request.labels["app"] == "test")
+}
+
+@Test func containerRequest_imageFromDockerfile_defaultsToNil() {
+    let request = ContainerRequest(image: "alpine:3")
+
+    #expect(request.imageFromDockerfile == nil)
+}
+
+@Test func containerRequest_imageFromDockerfile_conformsToHashable() {
+    let dockerfile = ImageFromDockerfile(dockerfilePath: "Dockerfile")
+        .withBuildArg("A", "1")
+
+    // Two requests with the same dockerfile config should not be equal
+    // because they have different generated image tags
+    let request1 = ContainerRequest(imageFromDockerfile: dockerfile)
+    let request2 = ContainerRequest(imageFromDockerfile: dockerfile)
+
+    // They have different images due to UUID generation
+    #expect(request1 != request2)
+}
+
+@Test func containerRequest_imageFromDockerfile_sameImageWhenCopied() {
+    let dockerfile = ImageFromDockerfile()
+    let request1 = ContainerRequest(imageFromDockerfile: dockerfile)
+    let request2 = request1.withExposedPort(8080)
+
+    // Same request modified should keep same image tag
+    #expect(request1.image == request2.image)
+}

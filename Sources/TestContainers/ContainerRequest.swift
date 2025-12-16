@@ -199,6 +199,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var host: String
     public var healthCheck: HealthCheckConfig?
     public var retryPolicy: RetryPolicy?
+    public var imageFromDockerfile: ImageFromDockerfile?
 
     // Lifecycle hooks
     public var preStartHooks: [LifecycleHook]
@@ -222,6 +223,38 @@ public struct ContainerRequest: Sendable, Hashable {
         self.host = "127.0.0.1"
         self.healthCheck = nil
         self.retryPolicy = nil
+        self.imageFromDockerfile = nil
+        self.preStartHooks = []
+        self.postStartHooks = []
+        self.preStopHooks = []
+        self.postStopHooks = []
+        self.preTerminateHooks = []
+        self.postTerminateHooks = []
+    }
+
+    /// Initialize with Dockerfile to build.
+    ///
+    /// Creates a container request that will build an image from the specified Dockerfile
+    /// before running the container. The built image is automatically tagged with a
+    /// unique name and cleaned up after the test.
+    ///
+    /// - Parameter imageFromDockerfile: Configuration for building the Docker image
+    public init(imageFromDockerfile: ImageFromDockerfile) {
+        // Generate unique image tag for this build
+        self.image = "testcontainers-swift-\(UUID().uuidString.lowercased()):latest"
+        self.name = nil
+        self.command = []
+        self.entrypoint = nil
+        self.environment = [:]
+        self.labels = ["testcontainers.swift": "true"]
+        self.ports = []
+        self.volumes = []
+        self.bindMounts = []
+        self.waitStrategy = .none
+        self.host = "127.0.0.1"
+        self.healthCheck = nil
+        self.retryPolicy = nil
+        self.imageFromDockerfile = imageFromDockerfile
         self.preStartHooks = []
         self.postStartHooks = []
         self.preStopHooks = []
@@ -502,6 +535,33 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withRetry(_ policy: RetryPolicy) -> Self {
         var copy = self
         copy.retryPolicy = policy
+        return copy
+    }
+
+    // MARK: - Dockerfile Build
+
+    /// Specify a Dockerfile to build the container image from.
+    ///
+    /// When this is set, the image will be built from the specified Dockerfile
+    /// before running the container. The built image is automatically cleaned up
+    /// after the test.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "unused")
+    ///     .withImageFromDockerfile(
+    ///         ImageFromDockerfile(dockerfilePath: "test/Dockerfile")
+    ///             .withBuildArg("VERSION", "1.0")
+    ///     )
+    ///     .withExposedPort(8080)
+    /// ```
+    ///
+    /// - Parameter dockerfileImage: Configuration for building the Docker image
+    /// - Returns: Updated ContainerRequest with Dockerfile configuration
+    public func withImageFromDockerfile(_ dockerfileImage: ImageFromDockerfile) -> Self {
+        var copy = self
+        copy.imageFromDockerfile = dockerfileImage
+        copy.image = "testcontainers-swift-\(UUID().uuidString.lowercased()):latest"
         return copy
     }
 
