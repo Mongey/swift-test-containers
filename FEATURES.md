@@ -109,7 +109,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 **Developer experience**
 - [ ] Better diagnostics on failures (include last N log lines on timeout)
 - [ ] Structured logging hooks
-- [ ] Per-test artifacts (logs on failure, container metadata)
+- [x] Per-test artifacts (logs on failure, container metadata) - implemented as `ArtifactConfig` with configurable triggers (`.onFailure`, `.always`, `.onTimeout`), retention policies, and automatic collection via `withContainer(..., testName:)`
 
 **Compose / multi-container**
 - [ ] Define multi-container stacks
