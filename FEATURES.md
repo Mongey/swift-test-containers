@@ -137,7 +137,7 @@ Pre-configured containers with typed APIs, connection strings, and sensible defa
 
 **Other services**
 - [ ] `ElasticsearchContainer` / `OpenSearchContainer`
-- [ ] `VaultContainer`
+- [x] `VaultContainer` - HashiCorp Vault for secrets management
 - [ ] `NginxContainer`
 
 ---
