@@ -103,7 +103,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 
 **Reliability & reuse**
 - [ ] Reuse containers between tests (opt-in + safety constraints)
-- [ ] Global cleanup for leaked containers (Ryuk/Reaper-style or label-based sweeper)
+- [x] Global cleanup for leaked containers - implemented as `TestContainersCleanup` actor with label-based filtering, age thresholds, session tracking, dry-run mode, and parallel removal
 - [ ] Parallel test safety guidance (port collisions, unique naming)
 
 **Developer experience**
