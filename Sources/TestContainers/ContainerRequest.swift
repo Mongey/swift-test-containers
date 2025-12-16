@@ -565,6 +565,32 @@ public struct ContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    // MARK: - Session Labels
+
+    /// Apply current session labels to this container request.
+    ///
+    /// Session labels enable cleanup of containers from a specific test session.
+    /// Labels added:
+    /// - `testcontainers.swift.session.id`: Unique session identifier
+    /// - `testcontainers.swift.session.pid`: Process ID
+    /// - `testcontainers.swift.session.started`: Unix timestamp of session start
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "postgres:15")
+    ///     .withExposedPort(5432)
+    ///     .withSessionLabels()  // Enable session tracking
+    /// ```
+    ///
+    /// - Returns: Updated ContainerRequest with session labels applied
+    public func withSessionLabels() -> Self {
+        var copy = self
+        for (key, value) in currentTestSession.sessionLabels {
+            copy.labels[key] = value
+        }
+        return copy
+    }
+
     // MARK: - Lifecycle Hooks
 
     /// Adds a pre-start hook that runs before the container is created.
