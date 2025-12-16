@@ -179,6 +179,115 @@ public actor Container {
         try await copyDataToContainer(data, to: containerPath)
     }
 
+    // MARK: - Copy From Container Operations
+
+    /// Copy a file from the container to the host filesystem.
+    ///
+    /// Uses `docker cp` to copy a file from the container to the host.
+    ///
+    /// - Parameters:
+    ///   - containerPath: Absolute path to file inside the container
+    ///   - hostPath: Destination path on the host (file will be created/overwritten)
+    ///   - preservePermissions: Whether to preserve uid/gid (uses -a flag). Default: true
+    /// - Returns: URL to the copied file on the host
+    /// - Throws: `TestContainersError.commandFailed` if docker cp fails
+    ///
+    /// Example:
+    /// ```swift
+    /// let logFile = try await container.copyFileFromContainer(
+    ///     "/var/log/app.log",
+    ///     to: "/tmp/app-log.txt"
+    /// )
+    /// let contents = try String(contentsOf: logFile)
+    /// ```
+    public func copyFileFromContainer(
+        _ containerPath: String,
+        to hostPath: String,
+        preservePermissions: Bool = true
+    ) async throws -> URL {
+        try await docker.copyFromContainer(
+            id: id,
+            containerPath: containerPath,
+            hostPath: hostPath,
+            archive: preservePermissions
+        )
+        return URL(fileURLWithPath: hostPath)
+    }
+
+    /// Copy a directory from the container to the host filesystem.
+    ///
+    /// Uses `docker cp` to copy a directory tree recursively.
+    ///
+    /// - Parameters:
+    ///   - containerPath: Absolute path to the directory inside the container
+    ///   - hostPath: Destination directory on the host (created if it doesn't exist)
+    ///   - preservePermissions: Whether to preserve uid/gid (uses -a flag). Default: true
+    /// - Returns: URL to the copied directory on the host
+    /// - Throws: `TestContainersError.commandFailed` if docker cp fails
+    ///
+    /// Example:
+    /// ```swift
+    /// let artifactsDir = try await container.copyDirectoryFromContainer(
+    ///     "/app/artifacts",
+    ///     to: "/tmp/test-artifacts"
+    /// )
+    /// ```
+    public func copyDirectoryFromContainer(
+        _ containerPath: String,
+        to hostPath: String,
+        preservePermissions: Bool = true
+    ) async throws -> URL {
+        // Ensure destination directory exists
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: hostPath) {
+            try fileManager.createDirectory(
+                atPath: hostPath,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        }
+
+        try await docker.copyFromContainer(
+            id: id,
+            containerPath: containerPath,
+            hostPath: hostPath,
+            archive: preservePermissions
+        )
+        return URL(fileURLWithPath: hostPath)
+    }
+
+    /// Copy a file from the container directly into memory as Data.
+    ///
+    /// Copies the file to a temporary location and reads it into memory.
+    /// The temporary file is cleaned up automatically.
+    ///
+    /// - Parameter containerPath: Absolute path to the file inside the container
+    /// - Returns: File contents as Data
+    /// - Throws: `TestContainersError.commandFailed` if the copy operation fails
+    ///
+    /// Example:
+    /// ```swift
+    /// let configData = try await container.copyFileToData("/etc/app/config.json")
+    /// let config = try JSONDecoder().decode(AppConfig.self, from: configData)
+    /// ```
+    public func copyFileToData(_ containerPath: String) async throws -> Data {
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent("testcontainers-\(UUID().uuidString)")
+
+        defer {
+            try? FileManager.default.removeItem(at: tempFile)
+        }
+
+        try await docker.copyFromContainer(
+            id: id,
+            containerPath: containerPath,
+            hostPath: tempFile.path,
+            archive: false
+        )
+
+        return try Data(contentsOf: tempFile)
+    }
+
     func waitUntilReady() async throws {
         try await waitForStrategy(request.waitStrategy)
     }

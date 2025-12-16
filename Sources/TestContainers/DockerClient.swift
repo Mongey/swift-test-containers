@@ -274,4 +274,27 @@ public struct DockerClient: Sendable {
             throw error
         }
     }
+
+    /// Copy a file or directory from a container to the host filesystem.
+    ///
+    /// - Parameters:
+    ///   - id: The container ID
+    ///   - containerPath: Absolute path to source file or directory in container
+    ///   - hostPath: Destination path on host
+    ///   - archive: Whether to preserve uid/gid info (uses -a flag)
+    /// - Throws: `TestContainersError.commandFailed` if docker cp fails
+    func copyFromContainer(
+        id: String,
+        containerPath: String,
+        hostPath: String,
+        archive: Bool = true
+    ) async throws {
+        var args = ["cp"]
+        if archive {
+            args.append("-a")
+        }
+        args.append("\(id):\(containerPath)")
+        args.append(hostPath)
+        _ = try await runDocker(args)
+    }
 }
