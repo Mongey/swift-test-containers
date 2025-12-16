@@ -189,6 +189,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var image: String
     public var name: String?
     public var command: [String]
+    public var entrypoint: [String]?
     public var environment: [String: String]
     public var labels: [String: String]
     public var ports: [ContainerPort]
@@ -203,6 +204,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.image = image
         self.name = nil
         self.command = []
+        self.entrypoint = nil
         self.environment = [:]
         self.labels = ["testcontainers.swift": "true"]
         self.ports = []
@@ -224,6 +226,52 @@ public struct ContainerRequest: Sendable, Hashable {
         var copy = self
         copy.command = command
         return copy
+    }
+
+    /// Sets a custom entrypoint for the container, overriding the image's default ENTRYPOINT.
+    ///
+    /// The entrypoint specifies the executable that runs when the container starts.
+    /// When combined with `withCommand()`, the command arguments are passed to the entrypoint.
+    ///
+    /// - Parameter entrypoint: Array of strings representing the entrypoint command and its arguments.
+    ///   Pass an empty array `[]` to disable the default entrypoint.
+    ///   Pass `nil` to use the image's default entrypoint (this is also the default).
+    /// - Returns: Updated ContainerRequest with the entrypoint configured.
+    ///
+    /// Example:
+    /// ```swift
+    /// // Override entrypoint with custom shell
+    /// let request = ContainerRequest(image: "alpine:3")
+    ///     .withEntrypoint(["/bin/sh", "-c"])
+    ///     .withCommand(["echo hello && sleep 10"])
+    ///
+    /// // Disable entrypoint entirely
+    /// let request = ContainerRequest(image: "my-image")
+    ///     .withEntrypoint([])
+    ///     .withCommand(["/custom-binary", "--flag"])
+    /// ```
+    public func withEntrypoint(_ entrypoint: [String]) -> Self {
+        var copy = self
+        copy.entrypoint = entrypoint
+        return copy
+    }
+
+    /// Sets a single-command entrypoint for the container.
+    ///
+    /// Convenience method for setting an entrypoint with a single executable.
+    /// For entrypoints with arguments, use `withEntrypoint([String])`.
+    ///
+    /// - Parameter entrypoint: The entrypoint executable path.
+    /// - Returns: Updated ContainerRequest with the entrypoint configured.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "alpine:3")
+    ///     .withEntrypoint("/bin/bash")
+    ///     .withCommand(["-c", "echo hello"])
+    /// ```
+    public func withEntrypoint(_ entrypoint: String) -> Self {
+        withEntrypoint([entrypoint])
     }
 
     public func withEnvironment(_ environment: [String: String]) -> Self {

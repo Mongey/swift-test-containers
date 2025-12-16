@@ -486,3 +486,72 @@ import Testing
     let request = ContainerRequest(image: "alpine:3")
     #expect(request.bindMounts.isEmpty)
 }
+
+// MARK: - Entrypoint Override Tests
+
+@Test func containerRequest_entrypoint_defaultsToNil() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.entrypoint == nil)
+}
+
+@Test func containerRequest_withEntrypoint_setsEntrypointArray() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withEntrypoint(["/bin/sh", "-c"])
+
+    #expect(request.entrypoint == ["/bin/sh", "-c"])
+}
+
+@Test func containerRequest_withEntrypoint_singleString() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withEntrypoint("/bin/bash")
+
+    #expect(request.entrypoint == ["/bin/bash"])
+}
+
+@Test func containerRequest_withEntrypoint_emptyArrayDisables() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withEntrypoint([])
+
+    #expect(request.entrypoint == [])
+}
+
+@Test func containerRequest_withEntrypoint_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withEntrypoint(["/bin/sh"])
+
+    #expect(original.entrypoint == nil)
+    #expect(modified.entrypoint == ["/bin/sh"])
+}
+
+@Test func containerRequest_withEntrypoint_chainWithCommand() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withEntrypoint(["/bin/sh", "-c"])
+        .withCommand(["echo hello"])
+        .withEnvironment(["KEY": "value"])
+
+    #expect(request.entrypoint == ["/bin/sh", "-c"])
+    #expect(request.command == ["echo hello"])
+    #expect(request.environment["KEY"] == "value")
+}
+
+@Test func containerRequest_withEntrypoint_conformsToHashable() {
+    let request1 = ContainerRequest(image: "alpine:3")
+        .withEntrypoint(["/bin/sh"])
+    let request2 = ContainerRequest(image: "alpine:3")
+        .withEntrypoint(["/bin/sh"])
+    let request3 = ContainerRequest(image: "alpine:3")
+        .withEntrypoint(["/bin/bash"])
+
+    #expect(request1 == request2)
+    #expect(request1 != request3)
+}
+
+@Test func containerRequest_withEntrypoint_nilVsEmptyArrayAreDifferent() {
+    let nilEntrypoint = ContainerRequest(image: "alpine:3")
+    let emptyEntrypoint = ContainerRequest(image: "alpine:3")
+        .withEntrypoint([])
+
+    #expect(nilEntrypoint.entrypoint == nil)
+    #expect(emptyEntrypoint.entrypoint == [])
+    #expect(nilEntrypoint != emptyEntrypoint)
+}

@@ -281,3 +281,67 @@ import TestContainers
         }
     }
 }
+
+// MARK: - Entrypoint Override Integration Tests
+
+@Test func entrypoint_override_withShellCommand() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withEntrypoint(["/bin/sh", "-c"])
+        .withCommand(["echo 'Entrypoint override works' && sleep 1"])
+        .waitingFor(.logContains("Entrypoint override works"))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("Entrypoint override works"))
+    }
+}
+
+@Test func entrypoint_disable_allowsDirectCommand() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // Disable entrypoint and run echo directly
+    let request = ContainerRequest(image: "alpine:3")
+        .withEntrypoint([])
+        .withCommand(["/bin/echo", "Direct command execution"])
+        .waitingFor(.logContains("Direct command execution"))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("Direct command execution"))
+    }
+}
+
+@Test func entrypoint_singleExecutable_passesArgsFromCommand() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withEntrypoint("/bin/echo")
+        .withCommand(["Hello", "from", "entrypoint"])
+        .waitingFor(.logContains("Hello from entrypoint"))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("Hello from entrypoint"))
+    }
+}
+
+@Test func entrypoint_multiPart_prependsArgsToCommand() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // Test that multi-part entrypoint works: ["/bin/sh", "-c"] with command
+    let request = ContainerRequest(image: "alpine:3")
+        .withEntrypoint(["/bin/sh", "-c"])
+        .withCommand(["echo 'Multi-part entrypoint' && sleep 1"])
+        .waitingFor(.logContains("Multi-part entrypoint"))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("Multi-part entrypoint"))
+    }
+}

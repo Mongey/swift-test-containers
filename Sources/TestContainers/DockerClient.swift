@@ -93,7 +93,28 @@ public struct DockerClient: Sendable {
             }
         }
 
+        // Add entrypoint override if specified
+        // - nil: use image's default entrypoint (no flag)
+        // - []: disable entrypoint (--entrypoint "")
+        // - [cmd]: override entrypoint (--entrypoint cmd)
+        // - [cmd, args...]: override entrypoint and prepend args to command
+        if let entrypoint = request.entrypoint {
+            if entrypoint.isEmpty {
+                // Disable the default entrypoint
+                args += ["--entrypoint", ""]
+            } else {
+                // Set the entrypoint executable
+                args += ["--entrypoint", entrypoint[0]]
+            }
+        }
+
         args.append(request.image)
+
+        // Handle multi-part entrypoint: elements after the first become command prefix
+        if let entrypoint = request.entrypoint, entrypoint.count > 1 {
+            args += Array(entrypoint[1...])
+        }
+
         args += request.command
 
         let output = try await runDocker(args)
