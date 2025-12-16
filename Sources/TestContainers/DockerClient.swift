@@ -297,4 +297,17 @@ public struct DockerClient: Sendable {
         args.append(hostPath)
         _ = try await runDocker(args)
     }
+
+    // MARK: - Inspect Operations
+
+    /// Inspect a container to retrieve detailed runtime information.
+    ///
+    /// - Parameter id: The container ID
+    /// - Returns: Comprehensive inspection data including state, config, and networking
+    /// - Throws: `TestContainersError.commandFailed` if docker inspect fails,
+    ///           `TestContainersError.unexpectedDockerOutput` if output is invalid
+    func inspect(id: String) async throws -> ContainerInspection {
+        let output = try await runDocker(["inspect", id])
+        return try ContainerInspection.parse(from: output.stdout)
+    }
 }

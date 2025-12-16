@@ -29,6 +29,24 @@ public actor Container {
         try await docker.logs(id: id)
     }
 
+    /// Inspect the container to retrieve detailed runtime information.
+    ///
+    /// Returns comprehensive inspection data including container state,
+    /// configuration, and network settings.
+    ///
+    /// - Returns: `ContainerInspection` with state, config, and networking details
+    /// - Throws: `TestContainersError.commandFailed` if docker inspect fails
+    ///
+    /// Example:
+    /// ```swift
+    /// let inspection = try await container.inspect()
+    /// print("Status: \(inspection.state.status)")
+    /// print("IP: \(inspection.networkSettings.ipAddress)")
+    /// ```
+    public func inspect() async throws -> ContainerInspection {
+        try await docker.inspect(id: id)
+    }
+
     public func terminate() async throws {
         try await docker.removeContainer(id: id)
     }
