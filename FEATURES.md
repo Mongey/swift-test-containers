@@ -76,7 +76,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [ ] Resource limits (CPU/memory)
 - [ ] Privileged mode / capabilities
 - [ ] Platform/arch selection (`--platform`)
-- [ ] Container labels beyond defaults
+- [x] Extended container labels (`.withLabels(_:)`, `.withLabels(prefix:_:)`, `.withoutLabel(_:)`)
 
 **Networking**
 - [ ] Create/remove networks (`docker network create/rm`)
