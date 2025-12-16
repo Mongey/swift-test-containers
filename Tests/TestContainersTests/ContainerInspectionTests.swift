@@ -612,3 +612,157 @@ import Testing
         try ContainerInspection.parse(from: json)
     }
 }
+
+// MARK: - Integration Tests
+
+@Test func canInspectRunningContainer_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "redis:7-alpine")
+        .withExposedPort(6379)
+        .withEnvironment(["CUSTOM_VAR": "test-value"])
+        .withLabel("test-label", "label-value")
+        .waitingFor(.tcpPort(6379, timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let inspection = try await container.inspect()
+
+        // Verify state
+        #expect(inspection.state.status == .running)
+        #expect(inspection.state.running == true)
+        #expect(inspection.state.paused == false)
+        #expect(inspection.state.pid > 0)
+        #expect(inspection.state.exitCode == 0)
+
+        // Verify config
+        #expect(inspection.config.image == "redis:7-alpine")
+        #expect(inspection.config.env.contains("CUSTOM_VAR=test-value"))
+        #expect(inspection.config.labels["test-label"] == "label-value")
+
+        // Verify network - IP may be empty on Docker Desktop for macOS
+        // but network settings should be present
+        #expect(inspection.networkSettings.bridge != nil)
+
+        // Verify ports - should have at least one binding for 6379
+        let redisPort = inspection.networkSettings.ports.first { $0.containerPort == 6379 }
+        #expect(redisPort != nil)
+        #expect(redisPort?.protocol == "tcp")
+        #expect(redisPort?.hostPort != nil)
+
+        // Cross-check with existing hostPort API
+        let hostPort = try await container.hostPort(6379)
+        #expect(redisPort?.hostPort == hostPort)
+    }
+}
+
+@Test func canInspectContainerWithoutHealthCheck_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sh", "-c", "sleep 10"])
+
+    try await withContainer(request) { container in
+        let inspection = try await container.inspect()
+
+        // Alpine without healthcheck should have no health status
+        #expect(inspection.state.health == nil)
+        #expect(inspection.state.status == .running)
+    }
+}
+
+@Test func canInspectContainerWithHealthCheck_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sh", "-c", "touch /tmp/healthy && sleep 60"])
+        .withHealthCheck(command: ["test", "-f", "/tmp/healthy"], interval: .seconds(1))
+        .waitingFor(.healthCheck(timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let inspection = try await container.inspect()
+
+        // Should have health status after waiting
+        let health = try #require(inspection.state.health)
+        #expect(health.status == .healthy)
+        #expect(health.failingStreak == 0)
+    }
+}
+
+@Test func inspectReturnsContainerName_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let containerName = "test-inspect-\(UUID().uuidString.prefix(8))"
+    let request = ContainerRequest(image: "alpine:3")
+        .withName(containerName)
+        .withCommand(["sleep", "10"])
+
+    try await withContainer(request) { container in
+        let inspection = try await container.inspect()
+
+        // Docker prefixes names with /
+        #expect(inspection.name == "/\(containerName)")
+    }
+}
+
+@Test func inspectReturnsMultipleEnvVars_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withEnvironment([
+            "VAR1": "value1",
+            "VAR2": "value2",
+            "VAR3": "value3"
+        ])
+        .withCommand(["sleep", "10"])
+
+    try await withContainer(request) { container in
+        let inspection = try await container.inspect()
+
+        #expect(inspection.config.env.contains("VAR1=value1"))
+        #expect(inspection.config.env.contains("VAR2=value2"))
+        #expect(inspection.config.env.contains("VAR3=value3"))
+    }
+}
+
+@Test func inspectReturnsMultipleLabels_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withLabel("app", "myapp")
+        .withLabel("env", "test")
+        .withLabel("version", "1.2.3")
+        .withCommand(["sleep", "10"])
+
+    try await withContainer(request) { container in
+        let inspection = try await container.inspect()
+
+        #expect(inspection.config.labels["app"] == "myapp")
+        #expect(inspection.config.labels["env"] == "test")
+        #expect(inspection.config.labels["version"] == "1.2.3")
+    }
+}
+
+@Test func inspectReturnsCreatedTimestamp_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let beforeCreate = Date()
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sleep", "10"])
+
+    try await withContainer(request) { container in
+        let inspection = try await container.inspect()
+        let afterCreate = Date()
+
+        // Created time should be between before and after
+        #expect(inspection.created >= beforeCreate)
+        #expect(inspection.created <= afterCreate)
+    }
+}
