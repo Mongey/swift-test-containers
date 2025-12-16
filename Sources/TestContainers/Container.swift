@@ -1,8 +1,8 @@
 import Foundation
 
 public actor Container {
-    public let id: String
-    public let request: ContainerRequest
+    public nonisolated let id: String
+    public nonisolated let request: ContainerRequest
 
     private let docker: DockerClient
 
