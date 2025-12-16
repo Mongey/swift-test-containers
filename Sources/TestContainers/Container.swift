@@ -29,6 +29,41 @@ public actor Container {
         try await docker.logs(id: id)
     }
 
+    /// Stream container logs in real-time.
+    ///
+    /// Returns an AsyncThrowingStream that yields log entries as they are produced
+    /// by the container. Use this for monitoring container output in real-time
+    /// rather than fetching all logs at once.
+    ///
+    /// - Parameter options: Options for filtering and formatting the log stream.
+    ///   Defaults to following logs with both stdout and stderr.
+    /// - Returns: AsyncThrowingStream of LogEntry values
+    ///
+    /// Example:
+    /// ```swift
+    /// // Basic streaming
+    /// for try await entry in container.streamLogs() {
+    ///     print("[\(entry.stream)] \(entry.message)")
+    /// }
+    ///
+    /// // Tail last 100 lines without following
+    /// let options = LogStreamOptions(follow: false, tail: 100)
+    /// for try await entry in container.streamLogs(options: options) {
+    ///     print(entry.message)
+    /// }
+    ///
+    /// // With timestamps
+    /// let options = LogStreamOptions(timestamps: true)
+    /// for try await entry in container.streamLogs(options: options) {
+    ///     if let ts = entry.timestamp {
+    ///         print("\(ts): \(entry.message)")
+    ///     }
+    /// }
+    /// ```
+    public func streamLogs(options: LogStreamOptions = .default) -> AsyncThrowingStream<LogEntry, Error> {
+        docker.streamLogs(id: id, options: options)
+    }
+
     /// Inspect the container to retrieve detailed runtime information.
     ///
     /// Returns comprehensive inspection data including container state,

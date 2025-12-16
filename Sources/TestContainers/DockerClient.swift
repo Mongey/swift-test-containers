@@ -298,6 +298,47 @@ public struct DockerClient: Sendable {
         _ = try await runDocker(args)
     }
 
+    // MARK: - Log Streaming
+
+    /// Stream container logs in real-time.
+    ///
+    /// - Parameters:
+    ///   - id: The container ID
+    ///   - options: Options for filtering and formatting the log stream
+    /// - Returns: AsyncThrowingStream of LogEntry values
+    func streamLogs(id: String, options: LogStreamOptions) -> AsyncThrowingStream<LogEntry, Error> {
+        var args = ["logs"]
+        args.append(contentsOf: options.toDockerArgs())
+        args.append(id)
+
+        // Capture values for use in closures
+        let capturedArgs = args
+        let capturedDockerPath = dockerPath
+        let capturedRunner = runner
+        let hasTimestamps = options.timestamps
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await line in capturedRunner.streamLines(executable: capturedDockerPath, arguments: capturedArgs) {
+                        if Task.isCancelled {
+                            break
+                        }
+                        let entry = LogEntry.parse(line: line, hasTimestamps: hasTimestamps)
+                        continuation.yield(entry)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
+        }
+    }
+
     // MARK: - Inspect Operations
 
     /// Inspect a container to retrieve detailed runtime information.
