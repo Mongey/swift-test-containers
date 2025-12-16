@@ -258,3 +258,276 @@ import Testing
     #expect(request.labels["testcontainers.swift.session.id"] == currentTestSession.id)
     #expect(request.labels["testcontainers.swift.session.pid"] == String(currentTestSession.processId))
 }
+
+// MARK: - ContainerListItem Tests
+
+@Test func containerListItem_decodesFromJSON() throws {
+    let json = """
+    {"ID":"abc123def456","Names":"/my-container","Image":"alpine:3","Created":1702000000,"Labels":"testcontainers.swift=true","State":"running"}
+    """
+    let data = Data(json.utf8)
+    let item = try JSONDecoder().decode(ContainerListItem.self, from: data)
+
+    #expect(item.id == "abc123def456")
+    #expect(item.names == "/my-container")
+    #expect(item.image == "alpine:3")
+    #expect(item.created == 1702000000)
+    #expect(item.state == "running")
+}
+
+@Test func containerListItem_decodesMultipleNames() throws {
+    let json = """
+    {"ID":"abc123","Names":"/name1,/name2","Image":"redis:7","Created":1702000000,"Labels":"","State":"exited"}
+    """
+    let data = Data(json.utf8)
+    let item = try JSONDecoder().decode(ContainerListItem.self, from: data)
+
+    #expect(item.names == "/name1,/name2")
+}
+
+@Test func containerListItem_decodesEmptyLabels() throws {
+    let json = """
+    {"ID":"abc123","Names":"","Image":"nginx","Created":1702000000,"Labels":"","State":"created"}
+    """
+    let data = Data(json.utf8)
+    let item = try JSONDecoder().decode(ContainerListItem.self, from: data)
+
+    #expect(item.labels == "")
+}
+
+@Test func containerListItem_decodesMultipleLabels() throws {
+    let json = """
+    {"ID":"abc123","Names":"/test","Image":"postgres:15","Created":1702000000,"Labels":"key1=value1,key2=value2","State":"running"}
+    """
+    let data = Data(json.utf8)
+    let item = try JSONDecoder().decode(ContainerListItem.self, from: data)
+
+    #expect(item.labels.contains("key1=value1"))
+    #expect(item.labels.contains("key2=value2"))
+}
+
+@Test func containerListItem_conformsToSendable() {
+    let json = """
+    {"ID":"abc123","Names":"","Image":"alpine","Created":1702000000,"Labels":"","State":"running"}
+    """
+    let data = Data(json.utf8)
+    let item = try? JSONDecoder().decode(ContainerListItem.self, from: data)
+
+    Task {
+        let _ = item?.id
+    }
+}
+
+// MARK: - DockerClient.listContainersArgs Tests
+
+@Test func listContainersArgs_noFilters() {
+    let args = DockerClient.listContainersArgs(labels: [:])
+
+    #expect(args == ["ps", "-a", "--format", "{{json .}}"])
+}
+
+@Test func listContainersArgs_singleLabelFilter() {
+    let args = DockerClient.listContainersArgs(labels: ["testcontainers.swift": "true"])
+
+    #expect(args.contains("--filter"))
+    #expect(args.contains("label=testcontainers.swift=true"))
+}
+
+@Test func listContainersArgs_multipleLabelFilters() {
+    let args = DockerClient.listContainersArgs(labels: [
+        "testcontainers.swift": "true",
+        "env": "test"
+    ])
+
+    #expect(args.contains("--filter"))
+    // Both filters should be present
+    let filterIndices = args.enumerated().filter { $0.element == "--filter" }.map { $0.offset }
+    #expect(filterIndices.count == 2)
+
+    // Check both label filters exist
+    #expect(args.contains("label=env=test"))
+    #expect(args.contains("label=testcontainers.swift=true"))
+}
+
+@Test func listContainersArgs_sortedForDeterministicOutput() {
+    // Call multiple times with same labels, should produce same order
+    let labels = ["z": "last", "a": "first", "m": "middle"]
+    let args1 = DockerClient.listContainersArgs(labels: labels)
+    let args2 = DockerClient.listContainersArgs(labels: labels)
+
+    #expect(args1 == args2)
+
+    // Verify alphabetical order
+    let labelArgs = args1.filter { $0.starts(with: "label=") }
+    #expect(labelArgs[0] == "label=a=first")
+    #expect(labelArgs[1] == "label=m=middle")
+    #expect(labelArgs[2] == "label=z=last")
+}
+
+// MARK: - DockerClient.parseContainerList Tests
+
+@Test func parseContainerList_emptyOutput() throws {
+    let output = ""
+    let items = try DockerClient.parseContainerList(output)
+
+    #expect(items.isEmpty)
+}
+
+@Test func parseContainerList_singleContainer() throws {
+    let output = """
+    {"ID":"abc123","Names":"/test-container","Image":"alpine:3","Created":1702000000,"Labels":"testcontainers.swift=true","State":"running"}
+    """
+    let items = try DockerClient.parseContainerList(output)
+
+    #expect(items.count == 1)
+    #expect(items[0].id == "abc123")
+    #expect(items[0].names == "/test-container")
+    #expect(items[0].image == "alpine:3")
+}
+
+@Test func parseContainerList_multipleContainers() throws {
+    let output = """
+    {"ID":"abc123","Names":"/container1","Image":"alpine:3","Created":1702000000,"Labels":"","State":"running"}
+    {"ID":"def456","Names":"/container2","Image":"redis:7","Created":1702000100,"Labels":"","State":"exited"}
+    {"ID":"ghi789","Names":"/container3","Image":"nginx:latest","Created":1702000200,"Labels":"","State":"created"}
+    """
+    let items = try DockerClient.parseContainerList(output)
+
+    #expect(items.count == 3)
+    #expect(items[0].id == "abc123")
+    #expect(items[1].id == "def456")
+    #expect(items[2].id == "ghi789")
+}
+
+@Test func parseContainerList_skipsEmptyLines() throws {
+    let output = """
+    {"ID":"abc123","Names":"/test","Image":"alpine","Created":1702000000,"Labels":"","State":"running"}
+
+    {"ID":"def456","Names":"/test2","Image":"redis","Created":1702000100,"Labels":"","State":"exited"}
+
+    """
+    let items = try DockerClient.parseContainerList(output)
+
+    #expect(items.count == 2)
+}
+
+@Test func parseContainerList_handlesWhitespace() throws {
+    let output = """
+      {"ID":"abc123","Names":"/test","Image":"alpine","Created":1702000000,"Labels":"","State":"running"}
+    """
+    let items = try DockerClient.parseContainerList(output)
+
+    #expect(items.count == 1)
+    #expect(items[0].id == "abc123")
+}
+
+// MARK: - ContainerListItem.parsedLabels Tests
+
+@Test func parsedLabels_emptyString() {
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/test",
+        image: "alpine",
+        created: 1702000000,
+        labels: "",
+        state: "running"
+    )
+
+    #expect(item.parsedLabels.isEmpty)
+}
+
+@Test func parsedLabels_singleLabel() {
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/test",
+        image: "alpine",
+        created: 1702000000,
+        labels: "key=value",
+        state: "running"
+    )
+
+    #expect(item.parsedLabels["key"] == "value")
+}
+
+@Test func parsedLabels_multipleLabels() {
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/test",
+        image: "alpine",
+        created: 1702000000,
+        labels: "key1=value1,key2=value2,testcontainers.swift=true",
+        state: "running"
+    )
+
+    #expect(item.parsedLabels.count == 3)
+    #expect(item.parsedLabels["key1"] == "value1")
+    #expect(item.parsedLabels["key2"] == "value2")
+    #expect(item.parsedLabels["testcontainers.swift"] == "true")
+}
+
+@Test func parsedLabels_handlesEqualsInValue() {
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/test",
+        image: "alpine",
+        created: 1702000000,
+        labels: "url=http://example.com?foo=bar",
+        state: "running"
+    )
+
+    #expect(item.parsedLabels["url"] == "http://example.com?foo=bar")
+}
+
+// MARK: - ContainerListItem.firstName Tests
+
+@Test func firstName_emptyNames() {
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "",
+        image: "alpine",
+        created: 1702000000,
+        labels: "",
+        state: "running"
+    )
+
+    #expect(item.firstName == nil)
+}
+
+@Test func firstName_singleName() {
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/my-container",
+        image: "alpine",
+        created: 1702000000,
+        labels: "",
+        state: "running"
+    )
+
+    #expect(item.firstName == "my-container")
+}
+
+@Test func firstName_multipleNames() {
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/name1,/name2,/name3",
+        image: "alpine",
+        created: 1702000000,
+        labels: "",
+        state: "running"
+    )
+
+    #expect(item.firstName == "name1")
+}
+
+@Test func firstName_stripsLeadingSlash() {
+    let item = ContainerListItem(
+        id: "abc123",
+        names: "/test-container",
+        image: "alpine",
+        created: 1702000000,
+        labels: "",
+        state: "running"
+    )
+
+    #expect(item.firstName == "test-container")
+}

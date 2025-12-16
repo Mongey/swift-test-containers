@@ -459,4 +459,91 @@ public struct DockerClient: Sendable {
 
         return args
     }
+
+    // MARK: - Container List Operations
+
+    /// List containers matching the given label filters.
+    ///
+    /// - Parameter labels: Dictionary of label key-value pairs to filter by
+    /// - Returns: Array of container list items
+    /// - Throws: `TestContainersError.commandFailed` if docker ps fails
+    func listContainers(labels: [String: String] = [:]) async throws -> [ContainerListItem] {
+        let args = Self.listContainersArgs(labels: labels)
+        let output = try await runDocker(args)
+        return try Self.parseContainerList(output.stdout)
+    }
+
+    /// Remove multiple containers in parallel.
+    ///
+    /// - Parameters:
+    ///   - ids: Array of container IDs to remove
+    ///   - force: Whether to force removal (default: true)
+    /// - Returns: Dictionary mapping container ID to optional error (nil if successful)
+    func removeContainers(ids: [String], force: Bool = true) async -> [String: Error?] {
+        var results: [String: Error?] = [:]
+
+        await withTaskGroup(of: (String, Error?).self) { group in
+            for id in ids {
+                group.addTask {
+                    do {
+                        var args = ["rm"]
+                        if force {
+                            args.append("-f")
+                        }
+                        args.append(id)
+                        _ = try await self.runDocker(args)
+                        return (id, nil)
+                    } catch {
+                        return (id, error)
+                    }
+                }
+            }
+
+            for await (id, error) in group {
+                results[id] = error
+            }
+        }
+
+        return results
+    }
+
+    /// Build the docker ps command arguments for listing containers.
+    ///
+    /// This is exposed as a static method for testing purposes.
+    ///
+    /// - Parameter labels: Dictionary of label key-value pairs to filter by
+    /// - Returns: Array of command line arguments for docker ps
+    static func listContainersArgs(labels: [String: String]) -> [String] {
+        var args: [String] = ["ps", "-a", "--format", "{{json .}}"]
+
+        // Add label filters sorted for deterministic output
+        for (key, value) in labels.sorted(by: { $0.key < $1.key }) {
+            args += ["--filter", "label=\(key)=\(value)"]
+        }
+
+        return args
+    }
+
+    /// Parse docker ps JSON output into ContainerListItem array.
+    ///
+    /// This is exposed as a static method for testing purposes.
+    ///
+    /// - Parameter output: The stdout from docker ps --format "{{json .}}"
+    /// - Returns: Array of parsed container list items
+    /// - Throws: DecodingError if JSON parsing fails
+    static func parseContainerList(_ output: String) throws -> [ContainerListItem] {
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
+        var items: [ContainerListItem] = []
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            let data = Data(trimmed.utf8)
+            let item = try JSONDecoder().decode(ContainerListItem.self, from: data)
+            items.append(item)
+        }
+
+        return items
+    }
 }

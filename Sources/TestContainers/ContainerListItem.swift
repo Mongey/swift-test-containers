@@ -1,0 +1,95 @@
+import Foundation
+
+/// Represents a container item from `docker ps` JSON output.
+///
+/// Used for listing containers during cleanup operations.
+/// The fields map to Docker's JSON format output from `docker ps --format "{{json .}}"`.
+public struct ContainerListItem: Sendable, Codable, Equatable {
+    /// Container ID (short form)
+    public let id: String
+
+    /// Container names (comma-separated, each prefixed with /)
+    public let names: String
+
+    /// Image name used by the container
+    public let image: String
+
+    /// Creation timestamp (Unix seconds)
+    public let created: Int
+
+    /// Labels as a comma-separated string (key=value,key2=value2)
+    public let labels: String
+
+    /// Container state (running, exited, created, etc.)
+    public let state: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "ID"
+        case names = "Names"
+        case image = "Image"
+        case created = "Created"
+        case labels = "Labels"
+        case state = "State"
+    }
+
+    /// Create a new ContainerListItem.
+    public init(
+        id: String,
+        names: String,
+        image: String,
+        created: Int,
+        labels: String,
+        state: String
+    ) {
+        self.id = id
+        self.names = names
+        self.image = image
+        self.created = created
+        self.labels = labels
+        self.state = state
+    }
+
+    /// Parse the labels string into a dictionary.
+    ///
+    /// Docker outputs labels as comma-separated `key=value` pairs.
+    /// This property parses them into a dictionary for easier access.
+    ///
+    /// Example: `"key1=value1,key2=value2"` becomes `["key1": "value1", "key2": "value2"]`
+    public var parsedLabels: [String: String] {
+        guard !labels.isEmpty else { return [:] }
+
+        var result: [String: String] = [:]
+        let pairs = labels.split(separator: ",")
+
+        for pair in pairs {
+            let parts = pair.split(separator: "=", maxSplits: 1)
+            if parts.count == 2 {
+                result[String(parts[0])] = String(parts[1])
+            } else if parts.count == 1 {
+                // Label with no value
+                result[String(parts[0])] = ""
+            }
+        }
+
+        return result
+    }
+
+    /// Get the first container name without the leading slash.
+    ///
+    /// Docker prefixes container names with `/` in the output.
+    /// This property returns the first name without the prefix.
+    public var firstName: String? {
+        guard !names.isEmpty else { return nil }
+
+        let firstNameWithSlash = names.split(separator: ",").first.map(String.init) ?? names
+        if firstNameWithSlash.hasPrefix("/") {
+            return String(firstNameWithSlash.dropFirst())
+        }
+        return firstNameWithSlash
+    }
+
+    /// Get the creation date.
+    public var createdDate: Date {
+        Date(timeIntervalSince1970: TimeInterval(created))
+    }
+}
