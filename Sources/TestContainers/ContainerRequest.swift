@@ -300,6 +300,65 @@ public struct ContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    /// Adds multiple labels to the container.
+    /// Labels are merged with existing labels; new values override existing keys.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "redis:7")
+    ///     .withLabels([
+    ///         "app.name": "redis-cache",
+    ///         "app.environment": "test",
+    ///         "app.version": "1.0.0"
+    ///     ])
+    /// ```
+    public func withLabels(_ labels: [String: String]) -> Self {
+        var copy = self
+        for (key, value) in labels {
+            copy.labels[key] = value
+        }
+        return copy
+    }
+
+    /// Adds multiple labels with a common prefix.
+    /// Useful for organizational label conventions.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "postgres:15")
+    ///     .withLabels(prefix: "com.mycompany.db", [
+    ///         "name": "users-db",
+    ///         "tier": "integration-test",
+    ///         "owner": "platform-team"
+    ///     ])
+    /// // Results in labels:
+    /// // - com.mycompany.db.name=users-db
+    /// // - com.mycompany.db.tier=integration-test
+    /// // - com.mycompany.db.owner=platform-team
+    /// ```
+    public func withLabels(prefix: String, _ labels: [String: String]) -> Self {
+        var copy = self
+        for (key, value) in labels {
+            let fullKey = prefix.isEmpty ? key : "\(prefix).\(key)"
+            copy.labels[fullKey] = value
+        }
+        return copy
+    }
+
+    /// Removes a label by key if it exists.
+    /// Useful for removing default labels or cleaning up during request building.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "alpine:3")
+    ///     .withoutLabel("testcontainers.swift")
+    /// ```
+    public func withoutLabel(_ key: String) -> Self {
+        var copy = self
+        copy.labels.removeValue(forKey: key)
+        return copy
+    }
+
     public func withExposedPort(_ containerPort: Int, hostPort: Int? = nil) -> Self {
         var copy = self
         copy.ports.append(ContainerPort(containerPort: containerPort, hostPort: hostPort))

@@ -555,3 +555,103 @@ import Testing
     #expect(emptyEntrypoint.entrypoint == [])
     #expect(nilEntrypoint != emptyEntrypoint)
 }
+
+// MARK: - Extended Labels Tests
+
+@Test func containerRequest_withLabels_addsMultipleLabels() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withLabels([
+            "app.name": "test-app",
+            "app.version": "1.0"
+        ])
+
+    #expect(request.labels["testcontainers.swift"] == "true")
+    #expect(request.labels["app.name"] == "test-app")
+    #expect(request.labels["app.version"] == "1.0")
+    #expect(request.labels.count == 3)
+}
+
+@Test func containerRequest_withLabels_prefixed_addsPrefixedLabels() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withLabels(prefix: "com.acme", [
+            "team": "platform",
+            "env": "test"
+        ])
+
+    #expect(request.labels["com.acme.team"] == "platform")
+    #expect(request.labels["com.acme.env"] == "test")
+}
+
+@Test func containerRequest_withLabels_emptyPrefixAddsLabelsWithoutDot() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withLabels(prefix: "", [
+            "key": "value"
+        ])
+
+    #expect(request.labels["key"] == "value")
+    #expect(request.labels[".key"] == nil)
+}
+
+@Test func containerRequest_withLabels_overridesExistingLabels() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withLabel("version", "1.0")
+        .withLabels(["version": "2.0"])
+
+    #expect(request.labels["version"] == "2.0")
+}
+
+@Test func containerRequest_withoutLabel_removesLabel() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withLabel("temp", "value")
+        .withoutLabel("temp")
+
+    #expect(request.labels["temp"] == nil)
+    #expect(request.labels["testcontainers.swift"] == "true")
+}
+
+@Test func containerRequest_withoutLabel_removesDefaultLabel() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withoutLabel("testcontainers.swift")
+
+    #expect(request.labels["testcontainers.swift"] == nil)
+    #expect(request.labels.isEmpty)
+}
+
+@Test func containerRequest_withLabels_chainsMultipleLabelOperations() {
+    let request = ContainerRequest(image: "redis:7")
+        .withLabel("single", "value")
+        .withLabels(["bulk1": "v1", "bulk2": "v2"])
+        .withLabels(prefix: "prefix", ["key": "val"])
+        .withoutLabel("bulk1")
+
+    #expect(request.labels["single"] == "value")
+    #expect(request.labels["bulk1"] == nil)
+    #expect(request.labels["bulk2"] == "v2")
+    #expect(request.labels["prefix.key"] == "val")
+    #expect(request.labels["testcontainers.swift"] == "true")
+}
+
+@Test func containerRequest_withLabels_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withLabels(["new": "label"])
+
+    #expect(original.labels.count == 1)
+    #expect(modified.labels.count == 2)
+}
+
+@Test func containerRequest_withoutLabel_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+        .withLabel("temp", "value")
+    let modified = original.withoutLabel("temp")
+
+    #expect(original.labels["temp"] == "value")
+    #expect(modified.labels["temp"] == nil)
+}
+
+@Test func containerRequest_withoutLabel_nonExistentKeyIsNoop() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withoutLabel("nonexistent")
+
+    #expect(request.labels["testcontainers.swift"] == "true")
+    #expect(request.labels.count == 1)
+}
