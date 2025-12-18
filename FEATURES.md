@@ -69,7 +69,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Volume mounts (named volumes) - implemented as `.withVolume(_:mountedAt:readOnly:)`
 - [x] Bind mounts (host path → container path) - implemented as `.withBindMount(hostPath:containerPath:readOnly:consistency:)`
 - [x] Entrypoint override (`--entrypoint`) - implemented as `.withEntrypoint([String])` / `.withEntrypoint(String)`
-- [ ] Tmpfs mounts
+- [x] Tmpfs mounts - implemented as `.withTmpfs(_:sizeLimit:mode:)` / `.withTmpfsMount(_:)`
 - [ ] Working directory (`--workdir`)
 - [ ] User / groups (`--user`)
 - [ ] Extra hosts (`--add-host`)
