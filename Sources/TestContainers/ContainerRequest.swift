@@ -249,6 +249,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var volumes: [VolumeMount]
     public var bindMounts: [BindMount]
     public var tmpfsMounts: [TmpfsMount]
+    public var workingDirectory: String?
     public var waitStrategy: WaitStrategy
     public var host: String
     public var healthCheck: HealthCheckConfig?
@@ -275,6 +276,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.volumes = []
         self.bindMounts = []
         self.tmpfsMounts = []
+        self.workingDirectory = nil
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
@@ -308,6 +310,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.volumes = []
         self.bindMounts = []
         self.tmpfsMounts = []
+        self.workingDirectory = nil
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
@@ -579,6 +582,26 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withTmpfsMount(_ mount: TmpfsMount) -> Self {
         var copy = self
         copy.tmpfsMounts.append(mount)
+        return copy
+    }
+
+    /// Sets the working directory inside the container.
+    ///
+    /// The working directory is the path where the container's command will execute.
+    /// If the directory doesn't exist, Docker will create it.
+    ///
+    /// - Parameter workingDirectory: Absolute path to use as the working directory
+    /// - Returns: Updated ContainerRequest with the working directory set
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "node:20")
+    ///     .withWorkingDirectory("/app")
+    ///     .withCommand(["node", "index.js"])
+    /// ```
+    public func withWorkingDirectory(_ workingDirectory: String) -> Self {
+        var copy = self
+        copy.workingDirectory = workingDirectory
         return copy
     }
 

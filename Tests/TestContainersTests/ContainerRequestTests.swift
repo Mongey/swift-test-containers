@@ -847,3 +847,62 @@ import Testing
     #expect(request.tmpfsMounts.count == 1)
     #expect(request.tmpfsMounts[0] == mount)
 }
+
+// MARK: - Working Directory Tests
+
+@Test func containerRequest_workingDirectory_isNilByDefault() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.workingDirectory == nil)
+}
+
+@Test func containerRequest_withWorkingDirectory_setsProperty() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/app")
+
+    #expect(request.workingDirectory == "/app")
+}
+
+@Test func containerRequest_withWorkingDirectory_canBeChained() {
+    let request = ContainerRequest(image: "node:20")
+        .withWorkingDirectory("/app")
+        .withCommand(["node", "index.js"])
+        .withExposedPort(3000)
+
+    #expect(request.workingDirectory == "/app")
+    #expect(request.command == ["node", "index.js"])
+    #expect(request.ports.count == 1)
+}
+
+@Test func containerRequest_withWorkingDirectory_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withWorkingDirectory("/app")
+
+    #expect(original.workingDirectory == nil)
+    #expect(modified.workingDirectory == "/app")
+}
+
+@Test func containerRequest_withWorkingDirectory_conformsToHashable() {
+    let request1 = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/app")
+    let request2 = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/app")
+    let request3 = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/other")
+
+    #expect(request1 == request2)
+    #expect(request1 != request3)
+}
+
+@Test func containerRequest_withWorkingDirectory_supportsRootDirectory() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/")
+
+    #expect(request.workingDirectory == "/")
+}
+
+@Test func containerRequest_withWorkingDirectory_supportsPathsWithSpaces() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/my app/data")
+
+    #expect(request.workingDirectory == "/my app/data")
+}
