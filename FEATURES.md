@@ -35,6 +35,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Volume mounts (named volumes) - `.withVolume(_:mountedAt:readOnly:)`
 - [x] Bind mounts (host path → container path) - `.withBindMount(hostPath:containerPath:readOnly:consistency:)`
 - [x] Entrypoint override (`--entrypoint`) - `.withEntrypoint([String])` / `.withEntrypoint(String)`
+- [x] Privileged mode / capabilities
 
 **Testing**
 - [x] Unit tests for request building
@@ -74,7 +75,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [ ] User / groups (`--user`)
 - [ ] Extra hosts (`--add-host`)
 - [ ] Resource limits (CPU/memory)
-- [ ] Privileged mode / capabilities
+- [x] Privileged mode / capabilities
 - [ ] Platform/arch selection (`--platform`)
 - [x] Extended container labels (`.withLabels(_:)`, `.withLabels(prefix:_:)`, `.withoutLabel(_:)`)
 
