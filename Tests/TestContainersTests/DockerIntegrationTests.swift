@@ -574,3 +574,59 @@ import TestContainers
         #expect(logs.contains("SUCCESS"))
     }
 }
+
+// MARK: - Working Directory Integration Tests
+
+@Test func workingDirectory_setsContainerWorkingDirectory() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/tmp")
+        .withCommand(["sh", "-c", "pwd && echo SUCCESS"])
+        .waitingFor(.logContains("SUCCESS", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+
+        // Verify working directory is set
+        #expect(logs.contains("/tmp"))
+        #expect(logs.contains("SUCCESS"))
+    }
+}
+
+@Test func workingDirectory_createsNonExistentDirectory() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/app/data")
+        .withCommand(["sh", "-c", "pwd && echo SUCCESS"])
+        .waitingFor(.logContains("SUCCESS", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+
+        // Docker creates the directory if it doesn't exist
+        #expect(logs.contains("/app/data"))
+        #expect(logs.contains("SUCCESS"))
+    }
+}
+
+@Test func workingDirectory_worksWithCommand() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withWorkingDirectory("/home")
+        .withCommand(["sh", "-c", "touch testfile.txt && ls && echo SUCCESS"])
+        .waitingFor(.logContains("SUCCESS", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+
+        // File should be created in the working directory
+        #expect(logs.contains("testfile.txt"))
+        #expect(logs.contains("SUCCESS"))
+    }
+}

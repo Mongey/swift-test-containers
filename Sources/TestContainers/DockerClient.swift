@@ -79,6 +79,11 @@ public struct DockerClient: Sendable {
             args += ["--tmpfs", mount.dockerFlag]
         }
 
+        // Add working directory if specified
+        if let workingDirectory = request.workingDirectory {
+            args += ["--workdir", workingDirectory]
+        }
+
         // Add health check configuration if specified
         if let healthCheck = request.healthCheck {
             let cmdString = healthCheck.command.joined(separator: " ")
