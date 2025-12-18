@@ -74,6 +74,11 @@ public struct DockerClient: Sendable {
             args += ["-v", mount.dockerFlag]
         }
 
+        // Add tmpfs mounts sorted by container path for deterministic ordering
+        for mount in request.tmpfsMounts.sorted(by: { $0.containerPath < $1.containerPath }) {
+            args += ["--tmpfs", mount.dockerFlag]
+        }
+
         // Add health check configuration if specified
         if let healthCheck = request.healthCheck {
             let cmdString = healthCheck.command.joined(separator: " ")

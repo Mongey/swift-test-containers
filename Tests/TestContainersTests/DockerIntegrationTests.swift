@@ -493,3 +493,84 @@ import TestContainers
     // Cleanup
     try? fm.removeItem(atPath: artifactDir)
 }
+
+// MARK: - Tmpfs Mount Integration Tests
+
+@Test func tmpfs_canMountSingleTmpfs() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withTmpfs("/tmpdata", sizeLimit: "50m", mode: "1777")
+        .withCommand(["sh", "-c", "mount | grep tmpdata && df -h /tmpdata && touch /tmpdata/test.txt && ls -la /tmpdata && echo SUCCESS"])
+        .waitingFor(.logContains("SUCCESS", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+
+        // Verify tmpfs is mounted
+        #expect(logs.contains("tmpfs on /tmpdata"))
+
+        // Verify file creation works
+        #expect(logs.contains("test.txt"))
+
+        // Verify success marker
+        #expect(logs.contains("SUCCESS"))
+    }
+}
+
+@Test func tmpfs_canMountMultipleTmpfs() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withTmpfs("/tmp1", sizeLimit: "10m")
+        .withTmpfs("/tmp2", sizeLimit: "20m")
+        .withCommand(["sh", "-c", "mount | grep 'tmpfs on /tmp' && echo SUCCESS"])
+        .waitingFor(.logContains("SUCCESS", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+
+        // Both mounts should be present
+        #expect(logs.contains("tmpfs on /tmp1"))
+        #expect(logs.contains("tmpfs on /tmp2"))
+        #expect(logs.contains("SUCCESS"))
+    }
+}
+
+@Test func tmpfs_mountWithModeOnly() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withTmpfs("/scratch", mode: "0755")
+        .withCommand(["sh", "-c", "mount | grep scratch && stat -c '%a' /scratch && echo SUCCESS"])
+        .waitingFor(.logContains("SUCCESS", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+
+        // Verify tmpfs is mounted
+        #expect(logs.contains("tmpfs on /scratch"))
+        #expect(logs.contains("SUCCESS"))
+    }
+}
+
+@Test func tmpfs_mountWithNoOptions() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withTmpfs("/simple")
+        .withCommand(["sh", "-c", "mount | grep simple && touch /simple/file.txt && cat /simple/file.txt && echo SUCCESS"])
+        .waitingFor(.logContains("SUCCESS", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+
+        // Verify tmpfs is mounted and usable
+        #expect(logs.contains("tmpfs on /simple"))
+        #expect(logs.contains("SUCCESS"))
+    }
+}
