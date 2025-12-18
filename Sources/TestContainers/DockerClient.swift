@@ -64,6 +64,18 @@ public struct DockerClient: Sendable {
             args += ["--label", "\(key)=\(value)"]
         }
 
+        if request.privileged {
+            args.append("--privileged")
+        }
+
+        for capability in request.capabilitiesToAdd.sorted(by: { $0.rawValue < $1.rawValue }) {
+            args += ["--cap-add", capability.rawValue]
+        }
+
+        for capability in request.capabilitiesToDrop.sorted(by: { $0.rawValue < $1.rawValue }) {
+            args += ["--cap-drop", capability.rawValue]
+        }
+
         // Add volume mounts sorted by volume name for deterministic ordering
         for mount in request.volumes.sorted(by: { $0.volumeName < $1.volumeName }) {
             args += ["-v", mount.dockerFlag]

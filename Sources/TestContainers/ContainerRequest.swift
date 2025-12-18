@@ -156,6 +156,56 @@ public struct ContainerPort: Hashable, Sendable {
     }
 }
 
+/// Represents a Linux capability that can be granted or dropped from a container.
+/// Full list: https://man7.org/linux/man-pages/man7/capabilities.7.html
+public struct Capability: Hashable, Sendable, RawRepresentable {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let netAdmin = Capability(rawValue: "NET_ADMIN")
+    public static let netRaw = Capability(rawValue: "NET_RAW")
+    public static let sysAdmin = Capability(rawValue: "SYS_ADMIN")
+    public static let sysTime = Capability(rawValue: "SYS_TIME")
+    public static let sysModule = Capability(rawValue: "SYS_MODULE")
+    public static let sysRawio = Capability(rawValue: "SYS_RAWIO")
+    public static let auditControl = Capability(rawValue: "AUDIT_CONTROL")
+    public static let auditRead = Capability(rawValue: "AUDIT_READ")
+    public static let chown = Capability(rawValue: "CHOWN")
+    public static let dacOverride = Capability(rawValue: "DAC_OVERRIDE")
+    public static let fowner = Capability(rawValue: "FOWNER")
+    public static let fsetid = Capability(rawValue: "FSETID")
+    public static let kill = Capability(rawValue: "KILL")
+    public static let setgid = Capability(rawValue: "SETGID")
+    public static let setuid = Capability(rawValue: "SETUID")
+    public static let setpcap = Capability(rawValue: "SETPCAP")
+    public static let netBindService = Capability(rawValue: "NET_BIND_SERVICE")
+    public static let netBroadcast = Capability(rawValue: "NET_BROADCAST")
+    public static let ipcLock = Capability(rawValue: "IPC_LOCK")
+    public static let ipcOwner = Capability(rawValue: "IPC_OWNER")
+    public static let sysChroot = Capability(rawValue: "SYS_CHROOT")
+    public static let sysPtrace = Capability(rawValue: "SYS_PTRACE")
+    public static let sysPacct = Capability(rawValue: "SYS_PACCT")
+    public static let sysResource = Capability(rawValue: "SYS_RESOURCE")
+    public static let sysBoot = Capability(rawValue: "SYS_BOOT")
+    public static let sysNice = Capability(rawValue: "SYS_NICE")
+    public static let sysTtyConfig = Capability(rawValue: "SYS_TTY_CONFIG")
+    public static let mknod = Capability(rawValue: "MKNOD")
+    public static let lease = Capability(rawValue: "LEASE")
+    public static let auditWrite = Capability(rawValue: "AUDIT_WRITE")
+    public static let setfcap = Capability(rawValue: "SETFCAP")
+    public static let macOverride = Capability(rawValue: "MAC_OVERRIDE")
+    public static let macAdmin = Capability(rawValue: "MAC_ADMIN")
+    public static let syslog = Capability(rawValue: "SYSLOG")
+    public static let wakeAlarm = Capability(rawValue: "WAKE_ALARM")
+    public static let blockSuspend = Capability(rawValue: "BLOCK_SUSPEND")
+    public static let perfmon = Capability(rawValue: "PERFMON")
+    public static let bpf = Capability(rawValue: "BPF")
+    public static let checkpointRestore = Capability(rawValue: "CHECKPOINT_RESTORE")
+}
+
 public indirect enum WaitStrategy: Sendable, Hashable {
     case none
     case tcpPort(Int, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
@@ -250,6 +300,9 @@ public struct ContainerRequest: Sendable, Hashable {
     public var bindMounts: [BindMount]
     public var tmpfsMounts: [TmpfsMount]
     public var workingDirectory: String?
+    public var privileged: Bool
+    public var capabilitiesToAdd: Set<Capability>
+    public var capabilitiesToDrop: Set<Capability>
     public var waitStrategy: WaitStrategy
     public var host: String
     public var healthCheck: HealthCheckConfig?
@@ -277,6 +330,9 @@ public struct ContainerRequest: Sendable, Hashable {
         self.bindMounts = []
         self.tmpfsMounts = []
         self.workingDirectory = nil
+        self.privileged = false
+        self.capabilitiesToAdd = []
+        self.capabilitiesToDrop = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
@@ -311,6 +367,9 @@ public struct ContainerRequest: Sendable, Hashable {
         self.bindMounts = []
         self.tmpfsMounts = []
         self.workingDirectory = nil
+        self.privileged = false
+        self.capabilitiesToAdd = []
+        self.capabilitiesToDrop = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
@@ -605,6 +664,60 @@ public struct ContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    /// Run the container in privileged mode, granting all capabilities.
+    ///
+    /// Privileged mode gives the container nearly all capabilities of the host machine.
+    /// This is typically used for Docker-in-Docker, device access, or system administration tasks.
+    ///
+    /// - Parameter privileged: Whether to run in privileged mode (default: true)
+    /// - Returns: Updated ContainerRequest with privileged mode configured
+    public func withPrivileged(_ privileged: Bool = true) -> Self {
+        var copy = self
+        copy.privileged = privileged
+        return copy
+    }
+
+    /// Add specific Linux capabilities to the container.
+    ///
+    /// Capabilities are a fine-grained alternative to privileged mode, allowing you to
+    /// grant specific permissions without full host access.
+    ///
+    /// - Parameter capabilities: Set of capabilities to add
+    /// - Returns: Updated ContainerRequest with capabilities added
+    public func withCapabilityAdd(_ capabilities: Set<Capability>) -> Self {
+        var copy = self
+        copy.capabilitiesToAdd.formUnion(capabilities)
+        return copy
+    }
+
+    /// Add a single Linux capability to the container.
+    ///
+    /// - Parameter capability: The capability to add
+    /// - Returns: Updated ContainerRequest with the capability added
+    public func withCapabilityAdd(_ capability: Capability) -> Self {
+        withCapabilityAdd([capability])
+    }
+
+    /// Drop specific Linux capabilities from the container.
+    ///
+    /// Use this to remove default capabilities for defense-in-depth security.
+    ///
+    /// - Parameter capabilities: Set of capabilities to drop
+    /// - Returns: Updated ContainerRequest with capabilities dropped
+    public func withCapabilityDrop(_ capabilities: Set<Capability>) -> Self {
+        var copy = self
+        copy.capabilitiesToDrop.formUnion(capabilities)
+        return copy
+    }
+
+    /// Drop a single Linux capability from the container.
+    ///
+    /// - Parameter capability: The capability to drop
+    /// - Returns: Updated ContainerRequest with the capability dropped
+    public func withCapabilityDrop(_ capability: Capability) -> Self {
+        withCapabilityDrop([capability])
+    }
+
     public func waitingFor(_ strategy: WaitStrategy) -> Self {
         var copy = self
         copy.waitStrategy = strategy
@@ -825,4 +938,3 @@ public struct ContainerRequest: Sendable, Hashable {
         return copy
     }
 }
-
