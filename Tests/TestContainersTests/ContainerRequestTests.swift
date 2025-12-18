@@ -754,3 +754,96 @@ import Testing
     // Same request modified should keep same image tag
     #expect(request1.image == request2.image)
 }
+
+// MARK: - TmpfsMount Tests
+
+@Test func tmpfsMount_dockerFlag_pathOnly() {
+    let mount = TmpfsMount(containerPath: "/tmp")
+    #expect(mount.dockerFlag == "/tmp")
+}
+
+@Test func tmpfsMount_dockerFlag_withSizeLimit() {
+    let mount = TmpfsMount(containerPath: "/cache", sizeLimit: "100m")
+    #expect(mount.dockerFlag == "/cache:size=100m")
+}
+
+@Test func tmpfsMount_dockerFlag_withMode() {
+    let mount = TmpfsMount(containerPath: "/data", mode: "0755")
+    #expect(mount.dockerFlag == "/data:mode=0755")
+}
+
+@Test func tmpfsMount_dockerFlag_withSizeAndMode() {
+    let mount = TmpfsMount(containerPath: "/work", sizeLimit: "1g", mode: "1777")
+    #expect(mount.dockerFlag == "/work:size=1g,mode=1777")
+}
+
+@Test func tmpfsMount_conformsToHashable() {
+    let mount1 = TmpfsMount(containerPath: "/tmp", sizeLimit: "100m")
+    let mount2 = TmpfsMount(containerPath: "/tmp", sizeLimit: "100m")
+    let mount3 = TmpfsMount(containerPath: "/tmp", sizeLimit: "200m")
+
+    #expect(mount1 == mount2)
+    #expect(mount1 != mount3)
+}
+
+@Test func tmpfsMount_defaultsToNilOptions() {
+    let mount = TmpfsMount(containerPath: "/test")
+    #expect(mount.sizeLimit == nil)
+    #expect(mount.mode == nil)
+}
+
+// MARK: - ContainerRequest Tmpfs Tests
+
+@Test func containerRequest_withTmpfs_addsMount() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withTmpfs("/tmp")
+
+    #expect(request.tmpfsMounts.count == 1)
+    #expect(request.tmpfsMounts[0].containerPath == "/tmp")
+    #expect(request.tmpfsMounts[0].sizeLimit == nil)
+    #expect(request.tmpfsMounts[0].mode == nil)
+}
+
+@Test func containerRequest_withTmpfs_withOptions() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withTmpfs("/tmp", sizeLimit: "100m", mode: "1777")
+
+    #expect(request.tmpfsMounts.count == 1)
+    #expect(request.tmpfsMounts[0].containerPath == "/tmp")
+    #expect(request.tmpfsMounts[0].sizeLimit == "100m")
+    #expect(request.tmpfsMounts[0].mode == "1777")
+}
+
+@Test func containerRequest_withTmpfs_multipleMounts() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withTmpfs("/tmp", sizeLimit: "100m", mode: "1777")
+        .withTmpfs("/cache", sizeLimit: "500m")
+        .withTmpfs("/work")
+
+    #expect(request.tmpfsMounts.count == 3)
+    #expect(request.tmpfsMounts[0].containerPath == "/tmp")
+    #expect(request.tmpfsMounts[1].containerPath == "/cache")
+    #expect(request.tmpfsMounts[2].containerPath == "/work")
+}
+
+@Test func containerRequest_withTmpfs_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withTmpfs("/tmp")
+
+    #expect(original.tmpfsMounts.isEmpty)
+    #expect(modified.tmpfsMounts.count == 1)
+}
+
+@Test func containerRequest_tmpfsMounts_startsEmpty() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.tmpfsMounts.isEmpty)
+}
+
+@Test func containerRequest_withTmpfsMount_addsDirectly() {
+    let mount = TmpfsMount(containerPath: "/data", sizeLimit: "256m", mode: "0755")
+    let request = ContainerRequest(image: "alpine:3")
+        .withTmpfsMount(mount)
+
+    #expect(request.tmpfsMounts.count == 1)
+    #expect(request.tmpfsMounts[0] == mount)
+}

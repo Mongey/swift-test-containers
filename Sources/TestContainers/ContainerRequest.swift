@@ -62,6 +62,59 @@ public struct BindMount: Sendable, Hashable {
     }
 }
 
+/// Represents a tmpfs (RAM-backed) mount configuration for Docker containers.
+///
+/// Tmpfs mounts provide fast, ephemeral storage that:
+/// - Exists entirely in memory (never written to disk)
+/// - Is destroyed when the container stops
+/// - Provides faster I/O than disk-backed storage
+///
+/// Example:
+/// ```swift
+/// let mount = TmpfsMount(containerPath: "/tmp", sizeLimit: "100m", mode: "1777")
+/// ```
+public struct TmpfsMount: Sendable, Hashable {
+    /// Absolute path inside the container where tmpfs will be mounted.
+    public var containerPath: String
+
+    /// Optional size limit (e.g., "100m", "1g").
+    /// If nil, tmpfs grows up to 50% of host memory by default.
+    public var sizeLimit: String?
+
+    /// Optional Unix permission mode (e.g., "1777", "0755").
+    /// If nil, uses default permissions (typically 0755).
+    public var mode: String?
+
+    public init(containerPath: String, sizeLimit: String? = nil, mode: String? = nil) {
+        self.containerPath = containerPath
+        self.sizeLimit = sizeLimit
+        self.mode = mode
+    }
+
+    /// Generates Docker CLI flag for this tmpfs mount.
+    /// Examples:
+    ///   - `/tmp`
+    ///   - `/cache:size=100m`
+    ///   - `/data:mode=0755`
+    ///   - `/work:size=1g,mode=1777`
+    var dockerFlag: String {
+        var options: [String] = []
+
+        if let size = sizeLimit {
+            options.append("size=\(size)")
+        }
+
+        if let mode = mode {
+            options.append("mode=\(mode)")
+        }
+
+        if options.isEmpty {
+            return containerPath
+        }
+        return "\(containerPath):\(options.joined(separator: ","))"
+    }
+}
+
 /// Represents a named volume mount configuration for Docker containers.
 public struct VolumeMount: Hashable, Sendable {
     /// The name of the Docker volume.
@@ -195,6 +248,7 @@ public struct ContainerRequest: Sendable, Hashable {
     public var ports: [ContainerPort]
     public var volumes: [VolumeMount]
     public var bindMounts: [BindMount]
+    public var tmpfsMounts: [TmpfsMount]
     public var waitStrategy: WaitStrategy
     public var host: String
     public var healthCheck: HealthCheckConfig?
@@ -220,6 +274,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.ports = []
         self.volumes = []
         self.bindMounts = []
+        self.tmpfsMounts = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
@@ -252,6 +307,7 @@ public struct ContainerRequest: Sendable, Hashable {
         self.ports = []
         self.volumes = []
         self.bindMounts = []
+        self.tmpfsMounts = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
         self.healthCheck = nil
@@ -475,6 +531,54 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withBindMount(_ mount: BindMount) -> Self {
         var copy = self
         copy.bindMounts.append(mount)
+        return copy
+    }
+
+    /// Mounts a tmpfs (RAM-backed temporary filesystem) at the specified container path.
+    ///
+    /// Tmpfs mounts provide fast, ephemeral storage that exists entirely in memory
+    /// and is destroyed when the container stops.
+    ///
+    /// - Parameters:
+    ///   - containerPath: Absolute path in the container where tmpfs will be mounted
+    ///   - sizeLimit: Optional size limit (e.g., "100m", "1g"). Defaults to 50% of host memory if nil.
+    ///   - mode: Optional Unix permission mode (e.g., "1777", "0755"). Defaults to "0755" if nil.
+    /// - Returns: Updated ContainerRequest with the tmpfs mount added
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "alpine:3")
+    ///     .withTmpfs("/tmp", sizeLimit: "100m", mode: "1777")
+    ///     .withTmpfs("/cache", sizeLimit: "500m")
+    /// ```
+    public func withTmpfs(
+        _ containerPath: String,
+        sizeLimit: String? = nil,
+        mode: String? = nil
+    ) -> Self {
+        var copy = self
+        copy.tmpfsMounts.append(TmpfsMount(
+            containerPath: containerPath,
+            sizeLimit: sizeLimit,
+            mode: mode
+        ))
+        return copy
+    }
+
+    /// Adds a tmpfs mount using a pre-constructed TmpfsMount value.
+    ///
+    /// - Parameter mount: The tmpfs mount configuration
+    /// - Returns: Updated ContainerRequest with the tmpfs mount added
+    ///
+    /// Example:
+    /// ```swift
+    /// let mount = TmpfsMount(containerPath: "/data", sizeLimit: "256m", mode: "0755")
+    /// let request = ContainerRequest(image: "alpine:3")
+    ///     .withTmpfsMount(mount)
+    /// ```
+    public func withTmpfsMount(_ mount: TmpfsMount) -> Self {
+        var copy = self
+        copy.tmpfsMounts.append(mount)
         return copy
     }
 
