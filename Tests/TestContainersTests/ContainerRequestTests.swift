@@ -906,3 +906,52 @@ import Testing
 
     #expect(request.workingDirectory == "/my app/data")
 }
+
+// MARK: - Privileged Mode & Capabilities Tests
+
+@Test func containerRequest_privileged_defaultsToFalse() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.privileged == false)
+}
+
+@Test func containerRequest_withPrivileged_setsFlag() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withPrivileged()
+
+    #expect(request.privileged == true)
+}
+
+@Test func containerRequest_withCapabilityAdd_accumulatesCapabilities() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withCapabilityAdd(.netAdmin)
+        .withCapabilityAdd([.netRaw, .sysTime])
+
+    #expect(request.capabilitiesToAdd == [.netAdmin, .netRaw, .sysTime])
+}
+
+@Test func containerRequest_withCapabilityDrop_accumulatesCapabilities() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withCapabilityDrop(.netRaw)
+        .withCapabilityDrop([.chown, .setuid])
+
+    #expect(request.capabilitiesToDrop == [.netRaw, .chown, .setuid])
+}
+
+@Test func containerRequest_withCapabilityAddAndDrop_canCombine() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withCapabilityAdd([.netAdmin, .sysTime])
+        .withCapabilityDrop([.chown, .setuid])
+
+    #expect(request.capabilitiesToAdd == [.netAdmin, .sysTime])
+    #expect(request.capabilitiesToDrop == [.chown, .setuid])
+}
+
+@Test func capability_rawValue_matchesExpectedConstant() {
+    #expect(Capability.netAdmin.rawValue == "NET_ADMIN")
+    #expect(Capability.sysTime.rawValue == "SYS_TIME")
+}
+
+@Test func capability_supportsCustomRawValues() {
+    let custom = Capability(rawValue: "CUSTOM_CAP")
+    #expect(custom.rawValue == "CUSTOM_CAP")
+}
