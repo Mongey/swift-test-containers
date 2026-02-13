@@ -1,1 +1,2 @@
 .build
+.testcontainers-artifacts/

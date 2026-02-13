@@ -8,6 +8,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] SwiftPM library target: `TestContainers`
 - [x] Fluent `ContainerRequest` builder (`image`, `name`, `command`, env, labels, ports)
 - [x] Scoped lifecycle: `withContainer(_:_:)` ensures cleanup on success, error, and cancellation
+- [x] Scoped multi-container lifecycle: `withStack(_:_:)` with `ContainerStack` and `RunningStack`
 - [x] `Container` handle: `hostPort(_:)`, `endpoint(for:)`, `logs()`, `terminate()`
 
 **Docker backend**
@@ -30,12 +31,16 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Copy files to container (`docker cp` to) - file, directory, string, and Data support
 - [x] Copy files from container (`docker cp` from) - file, directory, and Data variants
 - [x] `inspect()` - comprehensive container inspection (state, health, IPs, env, ports, labels)
+- [x] Container-to-container communication - `internalIP()`, `internalIP(forNetwork:)`, `internalHostname()`, `internalEndpoint(for:)`, `internalHostnameEndpoint(for:)`
 
 **Container configuration**
 - [x] Volume mounts (named volumes) - `.withVolume(_:mountedAt:readOnly:)`
 - [x] Bind mounts (host path → container path) - `.withBindMount(hostPath:containerPath:readOnly:consistency:)`
 - [x] Entrypoint override (`--entrypoint`) - `.withEntrypoint([String])` / `.withEntrypoint(String)`
+- [x] Extra hosts (`--add-host`) - `.withExtraHost(...)` / `.withExtraHosts(...)`
+- [x] User / groups (`--user`) - `.withUser(...)`, `.withUser(uid:)`, `.withUser(uid:gid:)`, `.withUser(username:group:)`
 - [x] Privileged mode / capabilities
+- [x] Explicit start/stop API - `createContainer()`, `Container.start()`, `.stop()`, `.restart()`, `.currentState`, `.isRunning`
 
 **Testing**
 - [x] Unit tests for request building
@@ -60,7 +65,7 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Copy files into container (`docker cp` to) - implemented with file, directory, string, and Data variants
 - [x] Copy files from container (`docker cp` from) - implemented with file, directory, and Data variants
 - [x] Inspect container (state, health, IPs, env, ports, labels) - implemented as `Container.inspect()`
-- [ ] Stream logs / follow logs (requires SDK or background process)
+- [x] Stream logs / follow logs - implemented as `Container.streamLogs(options:)` with `AsyncThrowingStream<LogEntry, Error>`
 
 ---
 
@@ -72,50 +77,49 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Entrypoint override (`--entrypoint`) - implemented as `.withEntrypoint([String])` / `.withEntrypoint(String)`
 - [x] Tmpfs mounts - implemented as `.withTmpfs(_:sizeLimit:mode:)` / `.withTmpfsMount(_:)`
 - [x] Working directory (`--workdir`) - implemented as `.withWorkingDirectory(_:)`
-- [ ] User / groups (`--user`)
-- [ ] Extra hosts (`--add-host`)
-- [ ] Resource limits (CPU/memory)
+- [x] Extra hosts (`--add-host`) - implemented as `.withExtraHost(...)` / `.withExtraHosts(...)`
+- [x] Resource limits (CPU/memory)
 - [x] Privileged mode / capabilities
-- [ ] Platform/arch selection (`--platform`)
+- [x] Platform/arch selection (`--platform`)
 - [x] Extended container labels (`.withLabels(_:)`, `.withLabels(prefix:_:)`, `.withoutLabel(_:)`)
 
 **Networking**
-- [ ] Create/remove networks (`docker network create/rm`)
-- [ ] Attach container to network(s) on start
-- [ ] Network aliases (container-to-container by name)
-- [ ] Container-to-container communication helpers
-- [ ] `withNetwork(_:_:)` scoped lifecycle
+- [x] Create/remove networks (`docker network create/rm`) - implemented as `NetworkRequest` builder, `DockerClient.createNetwork()`/`removeNetwork()`
+- [x] Attach container to network(s) on start - implemented as `.withNetwork(_:)`, `.withNetwork(_:aliases:)`, `.withNetwork(NetworkConnection(...))`, `.withNetworkMode(_:)` with multi-network support via `docker network connect`
+- [x] Network aliases (container-to-container by name) - implemented via `NetworkConnection.aliases`, `.withNetwork(_:aliases:)`, verified with DNS resolution integration tests
+- [x] Container-to-container communication helpers - implemented as `Container.internalIP()`, `.internalIP(forNetwork:)`, `.internalHostname()`, `.internalEndpoint(for:)`, `.internalHostnameEndpoint(for:)`
+- [x] `withNetwork(_:_:)` scoped lifecycle - implemented with automatic cleanup on success, error, and cancellation
 
 **Lifecycle & hooks**
-- [ ] Explicit `start()` / `stop()` API (in addition to scoped helper)
+- [x] Explicit `start()` / `stop()` API (in addition to scoped helper) - implemented as `createContainer()`, `Container.start()`, `.stop(timeout:)`, `.restart(timeout:)`, `.currentState`, `.isRunning`, `ContainerState` enum
 - [x] Lifecycle hooks: PreStart, PostStart, PreStop, PostStop, PreTerminate, PostTerminate - implemented as `.onPreStart()`, `.onPostStart()`, etc.
-- [ ] Log consumers (stream logs to callback during execution)
+- [x] Log consumers (stream logs to callback during execution) - implemented as `LogConsumer` protocol, `CollectingLogConsumer`, `PrintLogConsumer`, `CompositeLogConsumer`, `.withLogConsumer()` / `.withLogConsumers()`
 
 ---
 
 ### Tier 3: Advanced Features
 
 **Image workflows**
-- [ ] Pull policy (always / if-missing / never)
-- [ ] Auth to private registries
+- [x] Pull policy (always / if-missing / never) - implemented as `.withImagePullPolicy(.always/.ifNotPresent/.never)`
+- [x] Auth to private registries - implemented as `RegistryAuth` enum with `.credentials()`, `.configFile()`, `.systemDefault` cases, `ContainerRequest.withRegistryAuth()` builder, `docker login --password-stdin` for secure credential passing
 - [x] Build image from Dockerfile (and pass build args) - implemented as `ImageFromDockerfile` with builder pattern
-- [ ] Image preflight checks (inspect, existence)
-- [ ] Image substitutors (registry mirrors, custom hubs)
+- [x] Image preflight checks (inspect, existence) - implemented as `DockerClient.inspectImage(_:platform:)`, `imageExists(_:platform:)`, `ImageInspection` type with `ImageConfig` helpers
+- [x] Image substitutors (registry mirrors, custom hubs) - implemented as `ImageSubstitutorConfig` with `.registryMirror()`, `.repositoryPrefix()`, `.replaceRegistry()` factories, `.then()` chaining, and `ContainerRequest.withImageSubstitutor()`
 
 **Reliability & reuse**
-- [ ] Reuse containers between tests (opt-in + safety constraints)
+- [x] Reuse containers between tests (opt-in + safety constraints) - implemented with `ContainerRequest.withReuse()`, `ReuseConfig` gate, hash labels, and running-container lookup
 - [x] Global cleanup for leaked containers - implemented as `TestContainersCleanup` actor with label-based filtering, age thresholds, session tracking, dry-run mode, and parallel removal
-- [ ] Parallel test safety guidance (port collisions, unique naming)
+- [x] Parallel test safety guidance (port collisions, unique naming) - implemented with auto-generated names, random-port helpers, test labels, and parallel-safety request config
 
 **Developer experience**
-- [ ] Better diagnostics on failures (include last N log lines on timeout)
-- [ ] Structured logging hooks
+- [x] Better diagnostics on failures (include last N log lines on timeout) - implemented as `DiagnosticsConfig` with `.default`/`.disabled`/`.verbose` presets, `TimeoutDiagnostics` with container state and log capture, `.withDiagnostics()` / `.withLogTailLines()` builder methods
+- [x] Structured logging hooks - `TCLogger`, `LogHandler` protocol, `PrintLogHandler`, `OSLogHandler`, wired into `DockerClient`, `Container`, `Waiter`, `withContainer`, `withStack`, `withNetwork`
 - [x] Per-test artifacts (logs on failure, container metadata) - implemented as `ArtifactConfig` with configurable triggers (`.onFailure`, `.always`, `.onTimeout`), retention policies, and automatic collection via `withContainer(..., testName:)`
 
 **Compose / multi-container**
-- [ ] Define multi-container stacks
-- [ ] Dependency ordering + health/wait graph
-- [ ] Shared networks/volumes
+- [x] Define multi-container stacks (`ContainerStack`, `RunningStack`, `withStack`)
+- [x] Dependency ordering + wait graph (topological startup with per-container wait strategy)
+- [x] Shared networks/volumes - shared `VolumeConfig` in `ContainerStack`, auto-created and cleaned up via `withStack`
 
 ---
 
@@ -125,23 +129,24 @@ Pre-configured containers with typed APIs, connection strings, and sensible defa
 
 **Databases**
 - [x] `PostgresContainer` - PostgreSQL with connection string helper, pg_isready wait
-- [ ] `MySQLContainer` / `MariaDBContainer`
-- [ ] `MongoDBContainer`
-- [ ] `RedisContainer` (connection string, TLS support)
+- [x] `MySQLContainer` / `MariaDBContainer`
+- [x] `MongoDBContainer` - MongoDB with connection string helper, replica set support, auth
+- [x] `RedisContainer` - Redis with connection string, password auth, log level, snapshotting
 
 **Message queues**
-- [ ] `KafkaContainer`
-- [ ] `RabbitMQContainer`
-- [ ] `NATSContainer`
+- [x] `KafkaContainer`
+- [x] `RabbitMQContainer` - RabbitMQ with AMQP/management URL helpers, credentials, virtual host, SSL support
+- [x] `NATSContainer` - NATS with connection string helper, JetStream support, auth (user/pass and token), cluster config
 
 **Cloud & storage**
-- [ ] `LocalStackContainer` (AWS services emulation)
-- [ ] `MinioContainer` (S3-compatible storage)
+- [x] `LocalStackContainer` (AWS services emulation) - LocalStack with service selection, region config, endpoint helpers, HTTP health check wait
+- [x] `MinioContainer` (S3-compatible storage) - MinIO with S3/console endpoint helpers, credential management, bucket creation, HTTP health check wait
 
 **Other services**
-- [ ] `ElasticsearchContainer` / `OpenSearchContainer`
+- [x] `ElasticsearchContainer` / `OpenSearchContainer`
 - [x] `VaultContainer` - HashiCorp Vault for secrets management
 - [x] `NginxContainer` - Nginx web server with static files and custom config support
+- [x] `RedisContainer` - Redis with connection string, password auth, log level, snapshotting
 
 ---
 
@@ -187,7 +192,7 @@ Feature design is informed by [testcontainers-go](https://github.com/testcontain
 
 **Modules (First Set)**
 8. ~~`PostgresContainer` with connection string helper~~ ✓
-9. `RedisContainer` with connection string helper
+9. ~~`RedisContainer` with connection string helper~~ ✓
 
 **Reliability**
 10. Improved diagnostics (logs on timeout)
