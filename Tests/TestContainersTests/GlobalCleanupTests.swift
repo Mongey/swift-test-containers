@@ -323,7 +323,7 @@ import Testing
 @Test func listContainersArgs_noFilters() {
     let args = DockerClient.listContainersArgs(labels: [:])
 
-    #expect(args == ["ps", "-a", "--format", "{{json .}}"])
+    #expect(args == ["ps", "-a", "--no-trunc", "--format", "{{json .}}"])
 }
 
 @Test func listContainersArgs_singleLabelFilter() {
