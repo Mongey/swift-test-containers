@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "swift-test-containers",
     platforms: [
-        .macOS(.v15)
+        .macOS(.v13)
     ],
     products: [
         .library(

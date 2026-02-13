@@ -13,16 +13,10 @@ enum TCPProbe {
     }
 
     private static func canConnect(host: String, port: Int, timeoutMs: Int) -> Bool {
-        var hints = addrinfo(
-            ai_flags: 0,
-            ai_family: AF_UNSPEC,
-            ai_socktype: SOCK_STREAM,
-            ai_protocol: IPPROTO_TCP,
-            ai_addrlen: 0,
-            ai_canonname: nil,
-            ai_addr: nil,
-            ai_next: nil
-        )
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        hints.ai_protocol = IPPROTO_TCP
 
         var infoPtr: UnsafeMutablePointer<addrinfo>?
         let portString = String(port)
