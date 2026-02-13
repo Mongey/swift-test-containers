@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Used for listing containers during cleanup operations.
 /// The fields map to Docker's JSON format output from `docker ps --format "{{json .}}"`.
-public struct ContainerListItem: Sendable, Codable, Equatable {
+public struct ContainerListItem: Sendable, Decodable, Equatable {
     /// Container ID (short form)
     public let id: String
 
@@ -28,6 +28,7 @@ public struct ContainerListItem: Sendable, Codable, Equatable {
         case names = "Names"
         case image = "Image"
         case created = "Created"
+        case createdAt = "CreatedAt"
         case labels = "Labels"
         case state = "State"
     }
@@ -47,6 +48,52 @@ public struct ContainerListItem: Sendable, Codable, Equatable {
         self.created = created
         self.labels = labels
         self.state = state
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(String.self, forKey: .id)
+        names = try container.decode(String.self, forKey: .names)
+        image = try container.decode(String.self, forKey: .image)
+        labels = try container.decode(String.self, forKey: .labels)
+        state = try container.decode(String.self, forKey: .state)
+
+        if let created = try container.decodeIfPresent(Int.self, forKey: .created) {
+            self.created = created
+        } else if let createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt),
+                  let parsedDate = Self.parseDockerCreatedAt(createdAt) {
+            created = Int(parsedDate.timeIntervalSince1970)
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.created,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Container list item missing both Created and CreatedAt fields"
+                )
+            )
+        }
+    }
+
+    private static func parseDockerCreatedAt(_ value: String) -> Date? {
+        let formatters = [
+            "yyyy-MM-dd HH:mm:ss Z zzz",
+            "yyyy-MM-dd HH:mm:ss ZZZZ zzz",
+            "yyyy-MM-dd HH:mm:ss Z",
+            "yyyy-MM-dd HH:mm:ss",
+        ]
+
+        for format in formatters {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+
+        return nil
     }
 
     /// Parse the labels string into a dictionary.

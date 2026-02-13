@@ -22,34 +22,266 @@ private struct HealthCheckResponse: Decodable {
 
 public struct DockerClient: Sendable {
     private let dockerPath: String
-    private let runner = ProcessRunner()
+    private let runner: ProcessRunner
+    private let logger: TCLogger
 
-    public init(dockerPath: String = "docker") {
+    public init(dockerPath: String = "docker", logger: TCLogger = .null) {
         self.dockerPath = dockerPath
+        self.logger = logger
+        self.runner = ProcessRunner(logger: logger)
     }
 
     public func isAvailable() async -> Bool {
+        logger.debug("Checking Docker availability", metadata: ["dockerPath": dockerPath])
+        let start = ContinuousClock.now
         do {
             let result = try await runner.run(executable: dockerPath, arguments: ["version", "--format", "{{.Server.Version}}"])
-            return result.exitCode == 0 && !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let available = result.exitCode == 0 && !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let duration = ContinuousClock.now - start
+            if available {
+                logger.info("Docker is available", metadata: [
+                    "version": result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+                    "duration": "\(duration)",
+                ])
+            } else {
+                logger.warning("Docker check failed", metadata: [
+                    "exitCode": "\(result.exitCode)",
+                    "duration": "\(duration)",
+                ])
+            }
+            return available
         } catch {
+            let duration = ContinuousClock.now - start
+            logger.error("Docker availability check threw error", metadata: [
+                "error": "\(error)",
+                "duration": "\(duration)",
+            ])
             return false
         }
     }
 
-    func runDocker(_ args: [String]) async throws -> CommandOutput {
-        let output = try await runner.run(executable: dockerPath, arguments: args)
+    func runDocker(_ args: [String], environment: [String: String] = [:], stdinData: Data? = nil) async throws -> CommandOutput {
+        let output = try await runner.run(executable: dockerPath, arguments: args, environment: environment, stdinData: stdinData)
         if output.exitCode != 0 {
             throw TestContainersError.commandFailed(command: [dockerPath] + args, exitCode: output.exitCode, stdout: output.stdout, stderr: output.stderr)
         }
         return output
     }
 
-    func runContainer(_ request: ContainerRequest) async throws -> String {
-        var args: [String] = ["run", "-d"]
+    // MARK: - Registry Authentication
 
-        if let name = request.name {
+    /// Build the docker login command arguments.
+    static func loginArgs(registry: String, username: String) -> [String] {
+        ["login", registry, "-u", username, "--password-stdin"]
+    }
+
+    /// Authenticate to a Docker registry before pulling/running images.
+    ///
+    /// - Parameter auth: The authentication configuration
+    /// - Parameter environment: Mutable environment dictionary to update (for configFile)
+    func authenticateRegistry(_ auth: RegistryAuth, environment: inout [String: String]) async throws {
+        switch auth {
+        case let .credentials(registry, username, password):
+            let args = Self.loginArgs(registry: registry, username: username)
+            let passwordData = Data(password.utf8)
+            _ = try await runDocker(args, stdinData: passwordData)
+
+        case let .configFile(path):
+            environment["DOCKER_CONFIG"] = path
+
+        case .systemDefault:
+            break
+        }
+    }
+
+    /// Check if an image exists in the local Docker image cache.
+    ///
+    /// - Parameters:
+    ///   - image: Image reference (name, name:tag, or digest)
+    ///   - platform: Optional platform (e.g., "linux/amd64") for multi-platform images
+    /// - Returns: `true` if image exists locally, `false` otherwise
+    public func imageExists(_ image: String, platform: String? = nil) async -> Bool {
+        do {
+            var args = ["image", "inspect"]
+            if let platform {
+                args += ["--platform", platform]
+            }
+            args.append(image)
+            let output = try await runner.run(executable: dockerPath, arguments: args)
+            return output.exitCode == 0
+        } catch {
+            return false
+        }
+    }
+
+    /// Pull an image from a registry.
+    ///
+    /// - Parameters:
+    ///   - image: Image reference to pull
+    ///   - platform: Optional platform (e.g., "linux/amd64") for multi-platform images
+    public func pullImage(_ image: String, platform: String? = nil, environment: [String: String] = [:]) async throws {
+        var args = ["pull"]
+        if let platform {
+            args += ["--platform", platform]
+        }
+        args.append(image)
+        let output = try await runner.run(executable: dockerPath, arguments: args, environment: environment)
+        if output.exitCode != 0 {
+            throw TestContainersError.imagePullFailed(
+                image: image,
+                exitCode: output.exitCode,
+                stdout: output.stdout,
+                stderr: output.stderr
+            )
+        }
+    }
+
+    /// Inspect an image to retrieve comprehensive metadata.
+    ///
+    /// Queries the local Docker daemon for image information including
+    /// architecture, exposed ports, environment variables, labels, and more.
+    ///
+    /// - Parameters:
+    ///   - image: Image reference (name:tag, name@digest, or image ID)
+    ///   - platform: Optional platform specifier for multi-platform images (e.g., "linux/amd64")
+    /// - Returns: Detailed image metadata
+    /// - Throws: `TestContainersError.commandFailed` if Docker command fails
+    /// - Throws: `DecodingError` if JSON parsing fails
+    public func inspectImage(_ image: String, platform: String? = nil) async throws -> ImageInspection {
+        var args = ["image", "inspect"]
+        if let platform {
+            args += ["--platform", platform]
+        }
+        args.append(image)
+
+        let output = try await runDocker(args)
+        return try ImageInspection.parse(from: output.stdout)
+    }
+
+    func runContainer(_ request: ContainerRequest) async throws -> String {
+        logger.info("Starting container", metadata: [
+            "image": request.image,
+            "name": request.name ?? "auto",
+        ])
+        let start = ContinuousClock.now
+
+        var authEnvironment: [String: String] = [:]
+
+        // Authenticate to registry if credentials are provided
+        if let auth = request.registryAuth {
+            try await authenticateRegistry(auth, environment: &authEnvironment)
+        }
+
+        try await handleImagePullPolicy(request, environment: authEnvironment)
+
+        var args: [String] = ["run", "-d"]
+        args += try buildContainerArgs(request)
+
+        let output = try await runDocker(args, environment: authEnvironment)
+        let id = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { throw TestContainersError.unexpectedDockerOutput(output.stdout) }
+
+        try await connectAdditionalNetworks(request: request, containerId: id)
+
+        let duration = ContinuousClock.now - start
+        logger.notice("Container started", metadata: [
+            "containerId": String(id.prefix(12)),
+            "image": request.image,
+            "duration": "\(duration)",
+        ])
+
+        return id
+    }
+
+    /// Create a container without starting it.
+    ///
+    /// Uses `docker create` to create the container. Call `Container.start()` to start it later.
+    ///
+    /// - Parameter request: The container configuration
+    /// - Returns: The container ID
+    func createContainer(_ request: ContainerRequest) async throws -> String {
+        logger.info("Creating container", metadata: [
+            "image": request.image,
+            "name": request.name ?? "auto",
+        ])
+
+        var authEnvironment: [String: String] = [:]
+
+        if let auth = request.registryAuth {
+            try await authenticateRegistry(auth, environment: &authEnvironment)
+        }
+
+        try await handleImagePullPolicy(request, environment: authEnvironment)
+
+        var args: [String] = ["create"]
+        args += try buildContainerArgs(request)
+
+        let output = try await runDocker(args, environment: authEnvironment)
+        let id = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { throw TestContainersError.unexpectedDockerOutput(output.stdout) }
+
+        try await connectAdditionalNetworks(request: request, containerId: id)
+
+        logger.notice("Container created", metadata: [
+            "containerId": String(id.prefix(12)),
+            "image": request.image,
+        ])
+
+        return id
+    }
+
+    /// Start an existing container.
+    func startContainer(id: String) async throws {
+        logger.debug("Starting container", metadata: ["containerId": String(id.prefix(12))])
+        _ = try await runDocker(["start", id])
+    }
+
+    /// Stop a running container gracefully.
+    func stopContainer(id: String, timeout: Duration) async throws {
+        logger.debug("Stopping container", metadata: [
+            "containerId": String(id.prefix(12)),
+            "timeout": "\(timeout)",
+        ])
+        let seconds = Int(timeout.components.seconds)
+        _ = try await runDocker(["stop", "--time", "\(seconds)", id])
+    }
+
+    private func handleImagePullPolicy(_ request: ContainerRequest, environment: [String: String] = [:]) async throws {
+        let image = request.resolvedImage
+        switch request.imagePullPolicy {
+        case .always:
+            try await pullImage(image, environment: environment)
+        case .ifNotPresent:
+            break
+        case .never:
+            let exists = await imageExists(image)
+            if !exists {
+                throw TestContainersError.imageNotFoundLocally(
+                    image: image,
+                    message: "Pull policy is set to 'never'. Either pull the image manually with 'docker pull \(image)' or change the pull policy."
+                )
+            }
+        }
+    }
+
+    private func buildContainerArgs(_ request: ContainerRequest) throws -> [String] {
+        var args: [String] = []
+
+        if let platform = request.platform {
+            guard ContainerRequest.isValidPlatform(platform) else {
+                throw TestContainersError.invalidInput(
+                    "Invalid platform '\(platform)'. Expected format <os>/<architecture>[/variant], for example linux/amd64 or linux/arm/v7."
+                )
+            }
+            args += ["--platform", platform]
+        }
+
+        if let name = request.resolvedName() {
             args += ["--name", name]
+        }
+
+        if let user = request.user {
+            args += ["--user", user.dockerFlag]
         }
 
         for (key, value) in request.environment.sorted(by: { $0.key < $1.key }) {
@@ -62,6 +294,44 @@ public struct DockerClient: Sendable {
 
         for (key, value) in request.labels.sorted(by: { $0.key < $1.key }) {
             args += ["--label", "\(key)=\(value)"]
+        }
+
+        for host in request.extraHosts.sorted(by: {
+            if $0.hostname == $1.hostname {
+                return $0.ip < $1.ip
+            }
+            return $0.hostname < $1.hostname
+        }) {
+            guard host.isValid else {
+                throw TestContainersError.invalidInput(
+                    "Invalid extra host mapping '\(host.dockerFlag)'. Hostname and IP must both be non-empty."
+                )
+            }
+            args += ["--add-host", host.dockerFlag]
+        }
+
+        // Add resource limits
+        let limits = request.resourceLimits
+        if let memory = limits.memory {
+            args += ["--memory", memory]
+        }
+        if let memoryReservation = limits.memoryReservation {
+            args += ["--memory-reservation", memoryReservation]
+        }
+        if let memorySwap = limits.memorySwap {
+            args += ["--memory-swap", memorySwap]
+        }
+        if let cpus = limits.cpus {
+            args += ["--cpus", cpus]
+        }
+        if let cpuShares = limits.cpuShares {
+            args += ["--cpu-shares", String(cpuShares)]
+        }
+        if let cpuPeriod = limits.cpuPeriod {
+            args += ["--cpu-period", String(cpuPeriod)]
+        }
+        if let cpuQuota = limits.cpuQuota {
+            args += ["--cpu-quota", String(cpuQuota)]
         }
 
         if request.privileged {
@@ -115,22 +385,32 @@ public struct DockerClient: Sendable {
             }
         }
 
+        // Add network configuration
+        if let mode = request.networkMode {
+            args += ["--network", mode.dockerFlag]
+        } else if let firstNetwork = request.networks.first {
+            args += ["--network", firstNetwork.networkName]
+            for alias in firstNetwork.aliases {
+                args += ["--network-alias", alias]
+            }
+            if let ipv4 = firstNetwork.ipv4Address {
+                args += ["--ip", ipv4]
+            }
+            if let ipv6 = firstNetwork.ipv6Address {
+                args += ["--ip6", ipv6]
+            }
+        }
+
         // Add entrypoint override if specified
-        // - nil: use image's default entrypoint (no flag)
-        // - []: disable entrypoint (--entrypoint "")
-        // - [cmd]: override entrypoint (--entrypoint cmd)
-        // - [cmd, args...]: override entrypoint and prepend args to command
         if let entrypoint = request.entrypoint {
             if entrypoint.isEmpty {
-                // Disable the default entrypoint
                 args += ["--entrypoint", ""]
             } else {
-                // Set the entrypoint executable
                 args += ["--entrypoint", entrypoint[0]]
             }
         }
 
-        args.append(request.image)
+        args.append(request.resolvedImage)
 
         // Handle multi-part entrypoint: elements after the first become command prefix
         if let entrypoint = request.entrypoint, entrypoint.count > 1 {
@@ -139,10 +419,21 @@ public struct DockerClient: Sendable {
 
         args += request.command
 
-        let output = try await runDocker(args)
-        let id = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { throw TestContainersError.unexpectedDockerOutput(output.stdout) }
-        return id
+        return args
+    }
+
+    private func connectAdditionalNetworks(request: ContainerRequest, containerId: String) async throws {
+        if request.networkMode == nil {
+            for network in request.networks.dropFirst() {
+                try await connectToNetwork(
+                    containerId: containerId,
+                    networkName: network.networkName,
+                    aliases: network.aliases,
+                    ipv4Address: network.ipv4Address,
+                    ipv6Address: network.ipv6Address
+                )
+            }
+        }
     }
 
     private static func formatDuration(_ duration: Duration) -> String {
@@ -155,7 +446,20 @@ public struct DockerClient: Sendable {
     }
 
     func removeContainer(id: String) async throws {
+        logger.debug("Removing container", metadata: ["containerId": String(id.prefix(12))])
         _ = try await runDocker(["rm", "-f", id])
+    }
+
+    /// Fetch the last N lines of container logs.
+    func logsTail(id: String, lines: Int) async throws -> String {
+        let args = Self.logsTailArgs(id: id, lines: lines)
+        let output = try await runDocker(args)
+        return output.stdout + output.stderr
+    }
+
+    /// Build the docker logs --tail command arguments.
+    static func logsTailArgs(id: String, lines: Int) -> [String] {
+        ["logs", "--tail", "\(lines)", id]
     }
 
     func logs(id: String) async throws -> String {
@@ -272,6 +576,152 @@ public struct DockerClient: Sendable {
             if let port = Int(portString) { return port }
         }
         return nil
+    }
+
+    // MARK: - Network Operations
+
+    /// Create a Docker network with explicit primitive options.
+    ///
+    /// This overload is useful for stack orchestration APIs that use lightweight
+    /// network config values instead of `NetworkRequest`.
+    func createNetwork(name: String, driver: String = "bridge", internal: Bool = false) async throws -> String {
+        var args: [String] = ["network", "create", "--driver", driver]
+        if `internal` {
+            args.append("--internal")
+        }
+        args.append(name)
+
+        let output = try await runDocker(args)
+        let id = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else {
+            throw TestContainersError.unexpectedDockerOutput(output.stdout)
+        }
+        return id
+    }
+
+    func createNetwork(_ request: NetworkRequest) async throws -> (id: String, name: String) {
+        var args: [String] = ["network", "create"]
+
+        args += ["--driver", request.driver.rawValue]
+
+        for (key, value) in request.options.sorted(by: { $0.key < $1.key }) {
+            args += ["--opt", "\(key)=\(value)"]
+        }
+
+        for (key, value) in request.labels.sorted(by: { $0.key < $1.key }) {
+            args += ["--label", "\(key)=\(value)"]
+        }
+
+        if let ipam = request.ipamConfig {
+            if let subnet = ipam.subnet {
+                args += ["--subnet", subnet]
+            }
+            if let gateway = ipam.gateway {
+                args += ["--gateway", gateway]
+            }
+            if let ipRange = ipam.ipRange {
+                args += ["--ip-range", ipRange]
+            }
+        }
+
+        if request.enableIPv6 {
+            args += ["--ipv6"]
+        }
+
+        if request.internal {
+            args += ["--internal"]
+        }
+
+        if request.attachable {
+            args += ["--attachable"]
+        }
+
+        let networkName = request.name ?? "tc-network-\(UUID().uuidString.prefix(8).lowercased())"
+        args.append(networkName)
+
+        let output = try await runDocker(args)
+        let id = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else {
+            throw TestContainersError.unexpectedDockerOutput(output.stdout)
+        }
+
+        return (id: id, name: networkName)
+    }
+
+    func removeNetwork(id: String) async throws {
+        _ = try await runDocker(["network", "rm", id])
+    }
+
+    /// Connect a running container to a network.
+    ///
+    /// - Parameters:
+    ///   - containerId: The container ID
+    ///   - networkName: The network to connect to
+    ///   - aliases: DNS aliases for service discovery within the network
+    ///   - ipv4Address: Optional IPv4 address to assign
+    ///   - ipv6Address: Optional IPv6 address to assign
+    func connectToNetwork(
+        containerId: String,
+        networkName: String,
+        aliases: [String] = [],
+        ipv4Address: String? = nil,
+        ipv6Address: String? = nil
+    ) async throws {
+        var args = ["network", "connect"]
+
+        for alias in aliases {
+            args += ["--alias", alias]
+        }
+
+        if let ipv4 = ipv4Address {
+            args += ["--ip", ipv4]
+        }
+
+        if let ipv6 = ipv6Address {
+            args += ["--ip6", ipv6]
+        }
+
+        args += [networkName, containerId]
+        _ = try await runDocker(args)
+    }
+
+    func networkExists(_ nameOrID: String) async throws -> Bool {
+        do {
+            _ = try await runDocker(["network", "inspect", nameOrID])
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Volume Operations
+
+    /// Create a Docker volume with the given name and optional configuration.
+    ///
+    /// - Parameters:
+    ///   - name: The volume name
+    ///   - config: Optional volume configuration (driver, driver options)
+    /// - Returns: The volume name
+    func createVolume(name: String, config: VolumeConfig = VolumeConfig()) async throws -> String {
+        var args: [String] = ["volume", "create"]
+
+        args += ["--driver", config.driver]
+
+        for (key, value) in config.options.sorted(by: { $0.key < $1.key }) {
+            args += ["--opt", "\(key)=\(value)"]
+        }
+
+        args.append(name)
+
+        _ = try await runDocker(args)
+        return name
+    }
+
+    /// Remove a Docker volume by name.
+    ///
+    /// - Parameter name: The volume name to remove
+    func removeVolume(name: String) async throws {
+        _ = try await runDocker(["volume", "rm", "-f", name])
     }
 
     // MARK: - Copy Operations
@@ -495,6 +945,26 @@ public struct DockerClient: Sendable {
         return try Self.parseContainerList(output.stdout)
     }
 
+    /// Finds the newest running reusable container for a reuse hash.
+    ///
+    /// - Parameter hash: Reuse fingerprint hash
+    /// - Returns: The newest matching running container, if any
+    func findReusableContainer(hash: String) async throws -> ContainerListItem? {
+        let containers = try await listContainers(labels: [
+            ReuseLabels.enabled: "true",
+            ReuseLabels.hash: hash,
+            ReuseLabels.version: ReuseLabels.versionValue,
+        ])
+        return Self.selectReusableContainer(from: containers)
+    }
+
+    /// Selects the newest running container from a candidate list.
+    static func selectReusableContainer(from containers: [ContainerListItem]) -> ContainerListItem? {
+        containers
+            .filter { $0.state == "running" }
+            .max { lhs, rhs in lhs.created < rhs.created }
+    }
+
     /// Remove multiple containers in parallel.
     ///
     /// - Parameters:
@@ -536,7 +1006,7 @@ public struct DockerClient: Sendable {
     /// - Parameter labels: Dictionary of label key-value pairs to filter by
     /// - Returns: Array of command line arguments for docker ps
     static func listContainersArgs(labels: [String: String]) -> [String] {
-        var args: [String] = ["ps", "-a", "--format", "{{json .}}"]
+        var args: [String] = ["ps", "-a", "--no-trunc", "--format", "{{json .}}"]
 
         // Add label filters sorted for deterministic output
         for (key, value) in labels.sorted(by: { $0.key < $1.key }) {

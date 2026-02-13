@@ -5,11 +5,156 @@ public actor Container {
     public nonisolated let request: ContainerRequest
 
     private let docker: DockerClient
+    private let logger: TCLogger
+    private var state: ContainerState
+    private var logConsumers: [any LogConsumer] = []
+    private var logFollowTask: Task<Void, Never>?
 
-    init(id: String, request: ContainerRequest, docker: DockerClient) {
+    /// Container lifecycle states.
+    public enum ContainerState: Sendable, Equatable, CustomStringConvertible {
+        case created
+        case starting
+        case running
+        case stopping
+        case stopped
+        case terminated
+
+        public var description: String {
+            switch self {
+            case .created: return "created"
+            case .starting: return "starting"
+            case .running: return "running"
+            case .stopping: return "stopping"
+            case .stopped: return "stopped"
+            case .terminated: return "terminated"
+            }
+        }
+    }
+
+    init(id: String, request: ContainerRequest, docker: DockerClient, state: ContainerState = .running, logger: TCLogger = .null) {
         self.id = id
         self.request = request
         self.docker = docker
+        self.state = state
+        self.logger = logger
+    }
+
+    /// The current lifecycle state of the container.
+    public var currentState: ContainerState {
+        state
+    }
+
+    /// Whether the container is currently running.
+    public var isRunning: Bool {
+        state == .running
+    }
+
+    /// Start the container.
+    ///
+    /// Starts a stopped or newly created container and waits for readiness
+    /// according to the configured wait strategy.
+    ///
+    /// - Idempotent: calling on an already running container is a no-op.
+    /// - Throws `TestContainersError.invalidStateTransition` if called on a terminated container.
+    public func start() async throws {
+        switch state {
+        case .created, .stopped:
+            logger.info("Starting container", metadata: ["containerId": String(id.prefix(12)), "image": request.image])
+            state = .starting
+            do {
+                try await docker.startContainer(id: id)
+                try await waitUntilReady()
+                state = .running
+                logger.notice("Container is running", metadata: ["containerId": String(id.prefix(12))])
+            } catch {
+                // Rollback state on failure
+                state = .stopped
+                logger.error("Container start failed", metadata: ["containerId": String(id.prefix(12)), "error": "\(error)"])
+                throw error
+            }
+
+        case .running:
+            return
+
+        case .starting:
+            throw TestContainersError.invalidStateTransition(
+                from: state.description,
+                to: "running",
+                reason: "Container is already starting"
+            )
+
+        case .stopping:
+            throw TestContainersError.invalidStateTransition(
+                from: state.description,
+                to: "running",
+                reason: "Cannot start while stopping"
+            )
+
+        case .terminated:
+            throw TestContainersError.invalidStateTransition(
+                from: state.description,
+                to: "running",
+                reason: "Cannot start terminated container"
+            )
+        }
+    }
+
+    /// Stop the container gracefully.
+    ///
+    /// - Parameter timeout: Time to wait for graceful stop before force kill. Default: 10 seconds.
+    /// - Idempotent: calling on an already stopped container is a no-op.
+    /// - Throws `TestContainersError.invalidStateTransition` if called on a terminated container.
+    public func stop(timeout: Duration = .seconds(10)) async throws {
+        switch state {
+        case .running, .starting:
+            state = .stopping
+            do {
+                try await docker.stopContainer(id: id, timeout: timeout)
+                state = .stopped
+            } catch {
+                state = .stopped
+                throw error
+            }
+
+        case .stopped:
+            return
+
+        case .created:
+            state = .stopped
+
+        case .stopping:
+            throw TestContainersError.invalidStateTransition(
+                from: state.description,
+                to: "stopped",
+                reason: "Container is already stopping"
+            )
+
+        case .terminated:
+            throw TestContainersError.invalidStateTransition(
+                from: state.description,
+                to: "stopped",
+                reason: "Cannot stop terminated container"
+            )
+        }
+    }
+
+    /// Restart the container.
+    ///
+    /// Stops and starts the container, re-running the wait strategy.
+    ///
+    /// - Parameter timeout: Time to wait for graceful stop. Default: 10 seconds.
+    /// - Throws `TestContainersError.invalidStateTransition` if called on a terminated container.
+    public func restart(timeout: Duration = .seconds(10)) async throws {
+        guard state != .terminated else {
+            throw TestContainersError.invalidStateTransition(
+                from: state.description,
+                to: "running",
+                reason: "Cannot restart terminated container"
+            )
+        }
+
+        try await stop(timeout: timeout)
+        try await start()
     }
 
     public func hostPort(_ containerPort: Int) async throws -> Int {
@@ -82,8 +227,58 @@ public actor Container {
         try await docker.inspect(id: id)
     }
 
+    // MARK: - Log Consumers
+
+    /// Add a log consumer to receive container log output.
+    public func addLogConsumer(_ consumer: any LogConsumer) {
+        logConsumers.append(consumer)
+    }
+
+    /// Start streaming container logs to registered consumers.
+    /// Does nothing if no consumers are registered.
+    func startLogStreaming() {
+        guard !logConsumers.isEmpty else { return }
+
+        let consumers = logConsumers
+        let stream = streamLogs()
+
+        logFollowTask = Task {
+            do {
+                for try await entry in stream {
+                    if Task.isCancelled { break }
+                    let logStream: LogStream = entry.stream == .stderr ? .stderr : .stdout
+                    for consumer in consumers {
+                        await consumer.accept(stream: logStream, line: entry.message)
+                    }
+                }
+            } catch {
+                // Container stopped or stream ended - expected behavior
+            }
+        }
+    }
+
+    /// Stop streaming container logs.
+    func stopLogStreaming() {
+        logFollowTask?.cancel()
+        logFollowTask = nil
+    }
+
     public func terminate() async throws {
+        guard state != .terminated else {
+            return
+        }
+
+        logger.debug("Terminating container", metadata: ["containerId": String(id.prefix(12))])
+        stopLogStreaming()
+
+        // Stop gracefully if running
+        if state == .running || state == .starting {
+            try? await docker.stopContainer(id: id, timeout: .seconds(5))
+        }
+
         try await docker.removeContainer(id: id)
+        state = .terminated
+        logger.info("Container terminated", metadata: ["containerId": String(id.prefix(12))])
     }
 
     // MARK: - Exec
@@ -341,20 +536,138 @@ public actor Container {
         return try Data(contentsOf: tempFile)
     }
 
-    func waitUntilReady() async throws {
+    // MARK: - Container-to-Container Communication
+
+    /// Returns the container's internal IP address within its primary Docker network.
+    ///
+    /// This IP is used for container-to-container communication, not host-to-container.
+    ///
+    /// - Returns: The container's internal IP address (e.g., "172.17.0.2")
+    /// - Throws: `TestContainersError` if unable to inspect the container or no networks found
+    public func internalIP() async throws -> String {
+        let inspection = try await docker.inspect(id: id)
+        guard let firstNetwork = inspection.networkSettings.networks.values.first else {
+            throw TestContainersError.unexpectedDockerOutput(
+                "No networks found for container \(id)"
+            )
+        }
+        return firstNetwork.ipAddress
+    }
+
+    /// Returns the container's internal IP address for a specific Docker network.
+    ///
+    /// - Parameter networkName: The name of the Docker network
+    /// - Returns: The container's IP address within the specified network
+    /// - Throws: `TestContainersError.networkNotFound` if the network is not found
+    public func internalIP(forNetwork networkName: String) async throws -> String {
+        let inspection = try await docker.inspect(id: id)
+        guard let network = inspection.networkSettings.networks[networkName] else {
+            throw TestContainersError.networkNotFound(networkName, id: id)
+        }
+        return network.ipAddress
+    }
+
+    /// Returns the container's hostname for DNS-based communication within Docker networks.
+    ///
+    /// - Returns: The container's fixed name (if set via `.withFixedName()`) or short container ID (first 12 chars)
+    public func internalHostname() -> String {
+        if let name = request.name, !request.autoGenerateName {
+            return name
+        }
+        return String(id.prefix(12))
+    }
+
+    /// Returns an internal endpoint (IP:port) for container-to-container communication.
+    ///
+    /// Uses the container's internal IP and internal port, not host-mapped values.
+    ///
+    /// - Parameter containerPort: The port exposed within the container
+    /// - Returns: An endpoint string in the format "ip:port" (e.g., "172.17.0.2:5432")
+    public func internalEndpoint(for containerPort: Int) async throws -> String {
+        let ip = try await internalIP()
+        return "\(ip):\(containerPort)"
+    }
+
+    /// Returns an internal endpoint using the container's hostname instead of IP.
+    ///
+    /// Useful when DNS resolution is available (custom networks, not default bridge).
+    ///
+    /// - Parameter containerPort: The port exposed within the container
+    /// - Returns: An endpoint string in the format "hostname:port"
+    public func internalHostnameEndpoint(for containerPort: Int) async throws -> String {
+        let hostname = internalHostname()
+        return "\(hostname):\(containerPort)"
+    }
+
+    public func waitUntilReady() async throws {
         try await waitForStrategy(request.waitStrategy)
+    }
+
+    /// Waits for a specific strategy against an already-running container.
+    ///
+    /// This is primarily used by dependency wait graphs where a dependent
+    /// container may require a custom readiness condition on its dependency.
+    func wait(for strategy: WaitStrategy) async throws {
+        try await waitForStrategy(strategy)
     }
 
     // MARK: - Wait Strategy Execution
 
+    /// Collects diagnostic information from the container for timeout errors.
+    /// Never throws - returns best-effort diagnostics.
+    private func collectDiagnostics(description: String) async -> TimeoutDiagnostics {
+        let config = request.diagnostics
+        var recentLogs: String?
+        var containerState: ContainerStateDiagnostics?
+
+        if config.captureLogsOnFailure && config.logTailLines > 0 {
+            recentLogs = try? await docker.logsTail(id: id, lines: config.logTailLines)
+        }
+
+        if config.captureStateOnFailure {
+            if let inspection = try? await docker.inspect(id: id) {
+                containerState = ContainerStateDiagnostics(
+                    status: inspection.state.status.rawValue,
+                    running: inspection.state.running,
+                    exitCode: inspection.state.exitCode,
+                    oomKilled: inspection.state.oomKilled
+                )
+            }
+        }
+
+        return TimeoutDiagnostics(
+            description: description,
+            containerId: id,
+            image: request.image,
+            containerState: containerState,
+            recentLogs: recentLogs,
+            logLineCount: config.logTailLines
+        )
+    }
+
     private func waitForStrategy(_ strategy: WaitStrategy) async throws {
+        let diagnosticsEnabled = request.diagnostics.captureLogsOnFailure || request.diagnostics.captureStateOnFailure
+
         switch strategy {
         case .none:
             return
         case let .logContains(needle, timeout, pollInterval):
-            try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: "container logs to contain '\(needle)'") { [docker, id] in
-                let text = try await docker.logs(id: id)
-                return text.contains(needle)
+            let desc = "container logs to contain '\(needle)'"
+            if diagnosticsEnabled {
+                try await Waiter.waitWithDiagnostics(
+                    timeout: timeout,
+                    pollInterval: pollInterval,
+                    description: desc,
+                    onTimeout: { [self] in await collectDiagnostics(description: desc) }
+                ) { [docker, id] in
+                    let text = try await docker.logs(id: id)
+                    return text.contains(needle)
+                }
+            } else {
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [docker, id] in
+                    let text = try await docker.logs(id: id)
+                    return text.contains(needle)
+                }
             }
         case let .logMatches(pattern, timeout, pollInterval):
             // Validate regex pattern early
@@ -364,50 +677,100 @@ public actor Container {
                 throw TestContainersError.invalidRegexPattern(pattern, underlyingError: error.localizedDescription)
             }
 
-            try await Waiter.wait(
-                timeout: timeout,
-                pollInterval: pollInterval,
-                description: "container logs to match regex '\(pattern)'"
-            ) { [docker, id, pattern] in
-                let text = try await docker.logs(id: id)
-                // Regex is compiled each iteration but pattern validation happened above
-                let regex = try! Regex(pattern)
-                return text.contains(regex)
+            let desc = "container logs to match regex '\(pattern)'"
+            if diagnosticsEnabled {
+                try await Waiter.waitWithDiagnostics(
+                    timeout: timeout,
+                    pollInterval: pollInterval,
+                    description: desc,
+                    onTimeout: { [self] in await collectDiagnostics(description: desc) }
+                ) { [docker, id, pattern] in
+                    let text = try await docker.logs(id: id)
+                    let regex = try! Regex(pattern)
+                    return text.contains(regex)
+                }
+            } else {
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [docker, id, pattern] in
+                    let text = try await docker.logs(id: id)
+                    let regex = try! Regex(pattern)
+                    return text.contains(regex)
+                }
             }
         case let .tcpPort(containerPort, timeout, pollInterval):
             let hostPort = try await docker.port(id: id, containerPort: containerPort)
             let host = request.host
-            try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: "TCP port \(host):\(hostPort) to accept connections") {
-                TCPProbe.canConnect(host: host, port: hostPort, timeout: .milliseconds(200))
+            let desc = "TCP port \(host):\(hostPort) to accept connections"
+            if diagnosticsEnabled {
+                try await Waiter.waitWithDiagnostics(
+                    timeout: timeout,
+                    pollInterval: pollInterval,
+                    description: desc,
+                    onTimeout: { [self] in await collectDiagnostics(description: desc) }
+                ) {
+                    TCPProbe.canConnect(host: host, port: hostPort, timeout: .milliseconds(200))
+                }
+            } else {
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) {
+                    TCPProbe.canConnect(host: host, port: hostPort, timeout: .milliseconds(200))
+                }
             }
         case let .http(config):
             let hostPort = try await docker.port(id: id, containerPort: config.port)
             let host = request.host
             let scheme = config.useTLS ? "https" : "http"
             let url = "\(scheme)://\(host):\(hostPort)\(config.path)"
-            try await Waiter.wait(
-                timeout: config.timeout,
-                pollInterval: config.pollInterval,
-                description: "HTTP endpoint \(url) to return expected response"
-            ) {
-                await HTTPProbe.check(
-                    url: url,
-                    method: config.method,
-                    headers: config.headers,
-                    statusCodeMatcher: config.statusCodeMatcher,
-                    bodyMatcher: config.bodyMatcher,
-                    allowInsecureTLS: config.allowInsecureTLS,
-                    requestTimeout: config.requestTimeout
-                )
+            let desc = "HTTP endpoint \(url) to return expected response"
+            if diagnosticsEnabled {
+                try await Waiter.waitWithDiagnostics(
+                    timeout: config.timeout,
+                    pollInterval: config.pollInterval,
+                    description: desc,
+                    onTimeout: { [self] in await collectDiagnostics(description: desc) }
+                ) {
+                    await HTTPProbe.check(
+                        url: url,
+                        method: config.method,
+                        headers: config.headers,
+                        statusCodeMatcher: config.statusCodeMatcher,
+                        bodyMatcher: config.bodyMatcher,
+                        allowInsecureTLS: config.allowInsecureTLS,
+                        requestTimeout: config.requestTimeout
+                    )
+                }
+            } else {
+                try await Waiter.wait(
+                    timeout: config.timeout,
+                    pollInterval: config.pollInterval,
+                    description: desc
+                ) {
+                    await HTTPProbe.check(
+                        url: url,
+                        method: config.method,
+                        headers: config.headers,
+                        statusCodeMatcher: config.statusCodeMatcher,
+                        bodyMatcher: config.bodyMatcher,
+                        allowInsecureTLS: config.allowInsecureTLS,
+                        requestTimeout: config.requestTimeout
+                    )
+                }
             }
         case let .exec(command, timeout, pollInterval):
-            try await Waiter.wait(
-                timeout: timeout,
-                pollInterval: pollInterval,
-                description: "command '\(command.joined(separator: " "))' to exit with code 0"
-            ) { [docker, id] in
-                let exitCode = try await docker.exec(id: id, command: command)
-                return exitCode == 0
+            let desc = "command '\(command.joined(separator: " "))' to exit with code 0"
+            if diagnosticsEnabled {
+                try await Waiter.waitWithDiagnostics(
+                    timeout: timeout,
+                    pollInterval: pollInterval,
+                    description: desc,
+                    onTimeout: { [self] in await collectDiagnostics(description: desc) }
+                ) { [docker, id] in
+                    let exitCode = try await docker.exec(id: id, command: command)
+                    return exitCode == 0
+                }
+            } else {
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [docker, id] in
+                    let exitCode = try await docker.exec(id: id, command: command)
+                    return exitCode == 0
+                }
             }
         case let .healthCheck(timeout, pollInterval):
             // First check if container has health check configured
@@ -419,13 +782,22 @@ public actor Container {
                 )
             }
 
-            try await Waiter.wait(
-                timeout: timeout,
-                pollInterval: pollInterval,
-                description: "container health status to be 'healthy'"
-            ) { [docker, id] in
-                let status = try await docker.healthStatus(id: id)
-                return status.status == .healthy
+            let desc = "container health status to be 'healthy'"
+            if diagnosticsEnabled {
+                try await Waiter.waitWithDiagnostics(
+                    timeout: timeout,
+                    pollInterval: pollInterval,
+                    description: desc,
+                    onTimeout: { [self] in await collectDiagnostics(description: desc) }
+                ) { [docker, id] in
+                    let status = try await docker.healthStatus(id: id)
+                    return status.status == .healthy
+                }
+            } else {
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [docker, id] in
+                    let status = try await docker.healthStatus(id: id)
+                    return status.status == .healthy
+                }
             }
         case let .all(strategies, compositeTimeout):
             try await waitForAll(strategies, compositeTimeout: compositeTimeout)
@@ -539,4 +911,3 @@ private actor ErrorCollector {
         errors.sorted { $0.0 < $1.0 }.map { "\($0.1)" }
     }
 }
-

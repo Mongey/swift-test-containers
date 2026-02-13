@@ -234,11 +234,12 @@ extension NetworkSettings: Decodable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        bridge = try container.decode(String.self, forKey: .bridge)
-        sandboxID = try container.decode(String.self, forKey: .sandboxID)
-        ipAddress = try container.decode(String.self, forKey: .ipAddress)
-        gateway = try container.decode(String.self, forKey: .gateway)
-        macAddress = try container.decode(String.self, forKey: .macAddress)
+        // These top-level fields were removed in Docker 29+ (only present inside Networks)
+        bridge = try container.decodeIfPresent(String.self, forKey: .bridge) ?? ""
+        sandboxID = try container.decodeIfPresent(String.self, forKey: .sandboxID) ?? ""
+        ipAddress = try container.decodeIfPresent(String.self, forKey: .ipAddress) ?? ""
+        gateway = try container.decodeIfPresent(String.self, forKey: .gateway) ?? ""
+        macAddress = try container.decodeIfPresent(String.self, forKey: .macAddress) ?? ""
         networks = try container.decodeIfPresent([String: NetworkAttachment].self, forKey: .networks) ?? [:]
 
         // Custom port parsing - Docker uses format "6379/tcp": [{"HostIp": "...", "HostPort": "..."}]

@@ -18,6 +18,125 @@ import TestContainers
     }
 }
 
+@Test func canRunContainerAsSpecificUser_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3.19")
+        .withUser(uid: 1000, gid: 1000)
+        .withCommand(["sleep", "30"])
+
+    try await withContainer(request) { container in
+        let uidResult = try await container.exec(["id", "-u"])
+        let gidResult = try await container.exec(["id", "-g"])
+
+        #expect(uidResult.exitCode == 0)
+        #expect(gidResult.exitCode == 0)
+        #expect(uidResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "1000")
+        #expect(gidResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "1000")
+    }
+}
+
+// MARK: - Extra Hosts Integration Tests
+
+@Test func extraHosts_areWrittenToEtcHosts_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withExtraHost(hostname: "db.local", ip: "192.0.2.10")
+        .withExtraHost(hostname: "cache.local", ip: "192.0.2.11")
+        .withCommand(["cat", "/etc/hosts"])
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("192.0.2.10"))
+        #expect(logs.contains("db.local"))
+        #expect(logs.contains("192.0.2.11"))
+        #expect(logs.contains("cache.local"))
+    }
+}
+
+// MARK: - Resource Limits Integration Tests
+
+@Test func resourceLimits_canStartContainerWithMemoryLimit_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "redis:7")
+        .withMemoryLimit("256m")
+        .withExposedPort(6379)
+        .waitingFor(.tcpPort(6379, timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let port = try await container.hostPort(6379)
+        #expect(port > 0)
+    }
+}
+
+@Test func resourceLimits_canStartContainerWithCpuAndMemory_whenOptedIn() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withMemoryLimit("128m")
+        .withCpuLimit("0.5")
+        .withCpuShares(512)
+        .withCommand(["sh", "-c", "echo ready && sleep 1"])
+        .waitingFor(.logContains("ready", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("ready"))
+    }
+}
+
+// MARK: - Platform Selection Integration Tests
+
+@Test func platformSelection_canStartContainer_withAMD64Platform() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withPlatform("linux/amd64")
+        .withCommand(["sh", "-c", "uname -m && sleep 1"])
+        .waitingFor(.logContains("x86_64", timeout: .seconds(30)))
+
+    do {
+        try await withContainer(request) { container in
+            let logs = try await container.logs()
+            #expect(logs.contains("x86_64"))
+        }
+    } catch let error as TestContainersError {
+        if isUnsupportedPlatformError(error) {
+            return
+        }
+        throw error
+    }
+}
+
+@Test func platformSelection_canStartContainer_withARM64Platform() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withPlatform("linux/arm64")
+        .withCommand(["sh", "-c", "uname -m && sleep 1"])
+        .waitingFor(.logContains("aarch64", timeout: .seconds(30)))
+
+    do {
+        try await withContainer(request) { container in
+            let logs = try await container.logs()
+            #expect(logs.contains("aarch64"))
+        }
+    } catch let error as TestContainersError {
+        if isUnsupportedPlatformError(error) {
+            return
+        }
+        throw error
+    }
+}
+
 // MARK: - logMatches Integration Tests
 
 @Test func logMatches_redis_basicRegexPattern() async throws {
@@ -629,4 +748,308 @@ import TestContainers
         #expect(logs.contains("testfile.txt"))
         #expect(logs.contains("SUCCESS"))
     }
+}
+
+// MARK: - Image Pull Policy Integration Tests
+
+@Test func imagePullPolicy_always_pullsAndStartsContainer() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.always)
+        .withCommand(["sh", "-c", "echo 'pull-always-test' && sleep 2"])
+        .waitingFor(.logContains("pull-always-test", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("pull-always-test"))
+    }
+}
+
+@Test func imagePullPolicy_ifNotPresent_startsContainer() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.ifNotPresent)
+        .withCommand(["sh", "-c", "echo 'pull-ifnotpresent-test' && sleep 2"])
+        .waitingFor(.logContains("pull-ifnotpresent-test", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("pull-ifnotpresent-test"))
+    }
+}
+
+@Test func imagePullPolicy_never_startsContainerWhenImageExists() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // alpine:3 should already be present from other tests
+    // First ensure it's pulled using the always policy
+    let pullRequest = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.always)
+        .withCommand(["true"])
+    try? await withContainer(pullRequest) { _ in }
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.never)
+        .withCommand(["sh", "-c", "echo 'pull-never-test' && sleep 2"])
+        .waitingFor(.logContains("pull-never-test", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("pull-never-test"))
+    }
+}
+
+@Test func imagePullPolicy_never_failsWhenImageMissing() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let nonExistentImage = "alpine:this-tag-definitely-does-not-exist-\(UUID().uuidString)"
+
+    let request = ContainerRequest(image: nonExistentImage)
+        .withImagePullPolicy(.never)
+        .withCommand(["echo", "test"])
+
+    do {
+        try await withContainer(request) { _ in
+            Issue.record("Should have thrown imageNotFoundLocally error")
+        }
+    } catch let error as TestContainersError {
+        if case let .imageNotFoundLocally(image, _) = error {
+            #expect(image == nonExistentImage)
+        } else {
+            Issue.record("Expected imageNotFoundLocally error, got: \(error)")
+        }
+    }
+}
+
+@Test func imagePullPolicy_default_behavesLikeIfNotPresent() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    // No pull policy specified - should use default .ifNotPresent
+    let request = ContainerRequest(image: "alpine:3")
+        .withCommand(["sh", "-c", "echo 'default-pull-test' && sleep 2"])
+        .waitingFor(.logContains("default-pull-test", timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let logs = try await container.logs()
+        #expect(logs.contains("default-pull-test"))
+    }
+}
+
+// MARK: - Explicit Start/Stop Lifecycle Integration Tests
+
+@Test func manualLifecycle_createStartStopTerminate() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let container = try await createContainer(
+        ContainerRequest(image: "redis:7")
+            .withExposedPort(6379)
+            .waitingFor(.tcpPort(6379, timeout: .seconds(30)))
+    )
+
+    #expect(await container.currentState == .created)
+    #expect(await container.isRunning == false)
+
+    try await container.start()
+    #expect(await container.currentState == .running)
+    #expect(await container.isRunning == true)
+
+    let port = try await container.hostPort(6379)
+    #expect(port > 0)
+
+    try await container.stop()
+    #expect(await container.currentState == .stopped)
+    #expect(await container.isRunning == false)
+
+    try await container.terminate()
+    #expect(await container.currentState == .terminated)
+}
+
+@Test func manualLifecycle_restart() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let container = try await createContainer(
+        ContainerRequest(image: "redis:7")
+            .withExposedPort(6379)
+            .waitingFor(.tcpPort(6379, timeout: .seconds(30)))
+    )
+
+    try await container.start()
+    #expect(await container.isRunning == true)
+
+    try await container.restart()
+    #expect(await container.currentState == .running)
+
+    let port = try await container.hostPort(6379)
+    #expect(port > 0)
+
+    try await container.terminate()
+}
+
+@Test func manualLifecycle_idempotentOperations() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let container = try await createContainer(
+        ContainerRequest(image: "redis:7")
+            .withExposedPort(6379)
+            .waitingFor(.tcpPort(6379, timeout: .seconds(30)))
+    )
+
+    try await container.start()
+    try await container.start() // Should not throw
+    #expect(await container.isRunning == true)
+
+    try await container.stop()
+    try await container.stop() // Should not throw
+    #expect(await container.isRunning == false)
+
+    try await container.terminate()
+    try await container.terminate() // Should not throw
+}
+
+@Test func manualLifecycle_invalidStateTransitions() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let container = try await createContainer(
+        ContainerRequest(image: "redis:7")
+            .withExposedPort(6379)
+            .waitingFor(.tcpPort(6379, timeout: .seconds(30)))
+    )
+
+    try await container.start()
+    try await container.terminate()
+
+    await #expect(throws: TestContainersError.self) {
+        try await container.start()
+    }
+
+    await #expect(throws: TestContainersError.self) {
+        try await container.stop()
+    }
+
+    await #expect(throws: TestContainersError.self) {
+        try await container.restart()
+    }
+}
+
+@Test func withContainerStillWorks_afterLifecycleFeature() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    let request = ContainerRequest(image: "redis:7")
+        .withExposedPort(6379)
+        .waitingFor(.tcpPort(6379, timeout: .seconds(30)))
+
+    try await withContainer(request) { container in
+        let port = try await container.hostPort(6379)
+        #expect(port > 0)
+        #expect(await container.isRunning == true)
+    }
+}
+
+// MARK: - Network Alias Integration Tests
+
+@Test func networkAlias_containerCanResolveOtherByAlias() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    try await withNetwork(NetworkRequest()) { network in
+        let networkName = await network.name
+
+        let server = ContainerRequest(image: "nginx:alpine")
+            .withNetwork(networkName, aliases: ["webserver"])
+            .withExposedPort(80)
+            .waitingFor(.tcpPort(80, timeout: .seconds(30)))
+
+        let client = ContainerRequest(image: "alpine:3")
+            .withNetwork(networkName)
+            .withCommand(["sleep", "300"])
+
+        try await withContainer(server) { _ in
+            try await withContainer(client) { clientContainer in
+                // Client can resolve "webserver" via DNS and ping it
+                let result = try await clientContainer.exec(["ping", "-c", "1", "-W", "5", "webserver"])
+                #expect(result.exitCode == 0)
+            }
+        }
+    }
+}
+
+@Test func networkAlias_multipleAliasesAllResolvable() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    try await withNetwork(NetworkRequest()) { network in
+        let networkName = await network.name
+
+        let server = ContainerRequest(image: "nginx:alpine")
+            .withNetwork(networkName, aliases: ["web", "www", "nginx-svc"])
+            .withExposedPort(80)
+            .waitingFor(.tcpPort(80, timeout: .seconds(30)))
+
+        let client = ContainerRequest(image: "alpine:3")
+            .withNetwork(networkName)
+            .withCommand(["sleep", "300"])
+
+        try await withContainer(server) { _ in
+            try await withContainer(client) { clientContainer in
+                for alias in ["web", "www", "nginx-svc"] {
+                    let result = try await clientContainer.exec(["ping", "-c", "1", "-W", "5", alias])
+                    #expect(result.exitCode == 0, "Failed to resolve alias: \(alias)")
+                }
+            }
+        }
+    }
+}
+
+@Test func networkAlias_containerCommunicationOverTCP() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    try await withNetwork(NetworkRequest()) { network in
+        let networkName = await network.name
+
+        // Start nginx as the server with alias "http-server"
+        let server = ContainerRequest(image: "nginx:alpine")
+            .withNetwork(networkName, aliases: ["http-server"])
+            .withExposedPort(80)
+            .waitingFor(.tcpPort(80, timeout: .seconds(30)))
+
+        // Alpine client that will fetch from the server by alias
+        let client = ContainerRequest(image: "alpine:3")
+            .withNetwork(networkName)
+            .withCommand(["sleep", "300"])
+
+        try await withContainer(server) { _ in
+            try await withContainer(client) { clientContainer in
+                // wget the nginx default page via the alias
+                let result = try await clientContainer.exec([
+                    "wget", "-q", "-O", "-", "http://http-server:80/"
+                ])
+                #expect(result.exitCode == 0)
+                #expect(result.stdout.contains("nginx"))
+            }
+        }
+    }
+}
+
+private func isUnsupportedPlatformError(_ error: TestContainersError) -> Bool {
+    guard case let .commandFailed(_, _, _, stderr) = error else {
+        return false
+    }
+
+    let message = stderr.lowercased()
+    return message.contains("no matching manifest for")
+        || message.contains("requested image's platform")
+        || (message.contains("platform") && message.contains("not supported"))
 }

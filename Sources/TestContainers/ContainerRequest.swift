@@ -139,6 +139,101 @@ public struct VolumeMount: Hashable, Sendable {
     }
 }
 
+/// Represents a custom hostname to IP mapping added via `docker run --add-host`.
+public struct ExtraHost: Hashable, Sendable {
+    public var hostname: String
+    public var ip: String
+
+    public init(hostname: String, ip: String) {
+        self.hostname = hostname
+        self.ip = ip
+    }
+
+    /// Uses Docker's special `host-gateway` value for container-to-host access.
+    public static func gateway(hostname: String) -> Self {
+        ExtraHost(hostname: hostname, ip: "host-gateway")
+    }
+
+    var dockerFlag: String {
+        "\(hostname):\(ip)"
+    }
+
+    var isValid: Bool {
+        !hostname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !ip.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// Represents a network connection configuration for attaching a container to a Docker network.
+public struct NetworkConnection: Sendable, Hashable {
+    public var networkName: String
+    public var aliases: [String]
+    public var ipv4Address: String?
+    public var ipv6Address: String?
+
+    public init(
+        networkName: String,
+        aliases: [String] = [],
+        ipv4Address: String? = nil,
+        ipv6Address: String? = nil
+    ) {
+        self.networkName = networkName
+        self.aliases = aliases
+        self.ipv4Address = ipv4Address
+        self.ipv6Address = ipv6Address
+    }
+}
+
+/// Network mode for container networking.
+public enum NetworkMode: Sendable, Hashable {
+    case bridge
+    case host
+    case none
+    case container(String)
+    case custom(String)
+
+    var dockerFlag: String {
+        switch self {
+        case .bridge: return "bridge"
+        case .host: return "host"
+        case .none: return "none"
+        case .container(let nameOrId): return "container:\(nameOrId)"
+        case .custom(let name): return name
+        }
+    }
+}
+
+/// Authentication configuration for pulling images from private Docker registries.
+///
+/// Supports three modes:
+/// - `.credentials`: Direct username/password authentication (uses `docker login --password-stdin`)
+/// - `.configFile`: Use a custom Docker config directory (sets `DOCKER_CONFIG` env var)
+/// - `.systemDefault`: Use the default `~/.docker/config.json` (no action needed)
+public enum RegistryAuth: Sendable, Hashable {
+    /// Authenticate with username and password via `docker login --password-stdin`.
+    /// The password is passed via stdin to avoid shell exposure.
+    case credentials(registry: String, username: String, password: String)
+
+    /// Use a custom Docker config directory containing `config.json`.
+    /// The path should point to the directory, not the file itself.
+    case configFile(path: String)
+
+    /// Use the system default Docker config (`~/.docker/config.json`).
+    case systemDefault
+}
+
+/// Determines when Docker should pull container images from registries.
+public enum ImagePullPolicy: Sendable, Hashable {
+    /// Always pull the image from the registry, even if cached locally.
+    case always
+
+    /// Pull the image only if it doesn't exist locally (default).
+    case ifNotPresent
+
+    /// Never pull the image; only use images already available locally.
+    case never
+}
+
 public struct ContainerPort: Hashable, Sendable {
     public var containerPort: Int
     public var hostPort: Int?
@@ -206,6 +301,47 @@ public struct Capability: Hashable, Sendable, RawRepresentable {
     public static let checkpointRestore = Capability(rawValue: "CHECKPOINT_RESTORE")
 }
 
+/// Represents a Docker container user specification passed to `docker run --user`.
+///
+/// Supported formats:
+/// - `uid`
+/// - `uid:gid`
+/// - `username`
+/// - `username:group`
+/// - `username:gid`
+public struct ContainerUser: Sendable, Hashable {
+    public let dockerFlag: String
+
+    /// Run the container as a numeric user ID.
+    public init(uid: Int) {
+        self.dockerFlag = "\(uid)"
+    }
+
+    /// Run the container as a numeric user ID and group ID.
+    public init(uid: Int, gid: Int) {
+        self.dockerFlag = "\(uid):\(gid)"
+    }
+
+    /// Run the container as a username.
+    public init(username: String) {
+        precondition(!username.isEmpty, "username cannot be empty")
+        self.dockerFlag = username
+    }
+
+    /// Run the container as username and group name.
+    public init(username: String, group: String) {
+        precondition(!username.isEmpty, "username cannot be empty")
+        precondition(!group.isEmpty, "group cannot be empty")
+        self.dockerFlag = "\(username):\(group)"
+    }
+
+    /// Run the container as username and numeric group ID.
+    public init(username: String, gid: Int) {
+        precondition(!username.isEmpty, "username cannot be empty")
+        self.dockerFlag = "\(username):\(gid)"
+    }
+}
+
 public indirect enum WaitStrategy: Sendable, Hashable {
     case none
     case tcpPort(Int, timeout: Duration = .seconds(60), pollInterval: Duration = .milliseconds(200))
@@ -260,6 +396,32 @@ public indirect enum WaitStrategy: Sendable, Hashable {
     }
 }
 
+/// Defines what readiness condition to wait for on a dependency edge.
+public enum DependencyWaitStrategy: Sendable, Hashable {
+    /// Wait only until the dependency container has been started.
+    case started
+
+    /// Wait until the dependency container reaches its configured request readiness.
+    case ready
+
+    /// Wait until Docker health check reports "healthy" for the dependency container.
+    case healthy
+
+    /// Wait using a custom strategy against the dependency container.
+    case custom(WaitStrategy)
+}
+
+/// Represents a dependency relationship for a container request when used in a stack/group.
+public struct ContainerDependency: Sendable, Hashable {
+    public let name: String
+    public let waitStrategy: DependencyWaitStrategy
+
+    public init(name: String, waitStrategy: DependencyWaitStrategy = .ready) {
+        self.name = name
+        self.waitStrategy = waitStrategy
+    }
+}
+
 /// Configuration for Docker's runtime health check (--health-cmd).
 public struct HealthCheckConfig: Sendable, Hashable {
     /// The command to run for health checking.
@@ -288,27 +450,118 @@ public struct HealthCheckConfig: Sendable, Hashable {
     }
 }
 
+/// Resource constraints applied at container runtime.
+///
+/// Values are passed directly to Docker's `run` flags:
+/// - `memory` -> `--memory` (for example, `512m`, `1g`)
+/// - `memoryReservation` -> `--memory-reservation`
+/// - `memorySwap` -> `--memory-swap` (or `-1` for unlimited swap)
+/// - `cpus` -> `--cpus` (for example, `0.5`, `1.5`)
+/// - `cpuShares` -> `--cpu-shares`
+/// - `cpuPeriod` -> `--cpu-period`
+/// - `cpuQuota` -> `--cpu-quota`
+public struct ResourceLimits: Sendable, Hashable {
+    public var memory: String?
+    public var memoryReservation: String?
+    public var memorySwap: String?
+    public var cpus: String?
+    public var cpuShares: Int?
+    public var cpuPeriod: Int?
+    public var cpuQuota: Int?
+
+    public init() {
+        self.memory = nil
+        self.memoryReservation = nil
+        self.memorySwap = nil
+        self.cpus = nil
+        self.cpuShares = nil
+        self.cpuPeriod = nil
+        self.cpuQuota = nil
+    }
+}
+
+/// Configuration for diagnostic information collected on container failures.
+///
+/// When a wait strategy times out, diagnostics capture container logs and state
+/// to help developers quickly identify issues without manual inspection.
+public struct DiagnosticsConfig: Sendable, Hashable {
+    /// Whether to capture container logs on failure.
+    public var captureLogsOnFailure: Bool
+    /// Number of log lines to capture (from the end of logs).
+    public var logTailLines: Int
+    /// Whether to capture container state (running, exited, exit code, etc.) on failure.
+    public var captureStateOnFailure: Bool
+
+    /// Default diagnostics: capture 50 lines of logs and container state.
+    public static let `default` = DiagnosticsConfig(
+        captureLogsOnFailure: true,
+        logTailLines: 50,
+        captureStateOnFailure: true
+    )
+
+    /// Disable all diagnostic collection.
+    public static let disabled = DiagnosticsConfig(
+        captureLogsOnFailure: false,
+        logTailLines: 0,
+        captureStateOnFailure: false
+    )
+
+    /// Verbose diagnostics: capture 200 lines of logs and container state.
+    public static let verbose = DiagnosticsConfig(
+        captureLogsOnFailure: true,
+        logTailLines: 200,
+        captureStateOnFailure: true
+    )
+
+    public init(
+        captureLogsOnFailure: Bool = true,
+        logTailLines: Int = 50,
+        captureStateOnFailure: Bool = true
+    ) {
+        self.captureLogsOnFailure = captureLogsOnFailure
+        self.logTailLines = max(0, logTailLines)
+        self.captureStateOnFailure = captureStateOnFailure
+    }
+}
+
 public struct ContainerRequest: Sendable, Hashable {
+    private static let platformSegmentAllowedCharacters = CharacterSet.alphanumerics.union(
+        CharacterSet(charactersIn: "._-")
+    )
+
     public var image: String
     public var name: String?
+    public var autoGenerateName: Bool
     public var command: [String]
     public var entrypoint: [String]?
     public var environment: [String: String]
     public var labels: [String: String]
     public var ports: [ContainerPort]
+    public var extraHosts: [ExtraHost]
     public var volumes: [VolumeMount]
     public var bindMounts: [BindMount]
     public var tmpfsMounts: [TmpfsMount]
     public var workingDirectory: String?
+    public var user: ContainerUser?
     public var privileged: Bool
     public var capabilitiesToAdd: Set<Capability>
     public var capabilitiesToDrop: Set<Capability>
     public var waitStrategy: WaitStrategy
     public var host: String
+    public var platform: String?
     public var healthCheck: HealthCheckConfig?
     public var retryPolicy: RetryPolicy?
     public var imageFromDockerfile: ImageFromDockerfile?
     public var artifactConfig: ArtifactConfig
+    public var reuse: Bool
+    public var resourceLimits: ResourceLimits
+    public var imagePullPolicy: ImagePullPolicy
+    public var networks: [NetworkConnection]
+    public var networkMode: NetworkMode?
+    public var dependencies: [ContainerDependency]
+    public var diagnostics: DiagnosticsConfig
+    public var imageSubstitutor: ImageSubstitutorConfig?
+    public var registryAuth: RegistryAuth?
 
     // Lifecycle hooks
     public var preStartHooks: [LifecycleHook]
@@ -318,33 +571,50 @@ public struct ContainerRequest: Sendable, Hashable {
     public var preTerminateHooks: [LifecycleHook]
     public var postTerminateHooks: [LifecycleHook]
 
+    // Log consumers
+    public var logConsumers: [LogConsumerEntry]
+
     public init(image: String) {
         self.image = image
         self.name = nil
+        self.autoGenerateName = true
         self.command = []
         self.entrypoint = nil
         self.environment = [:]
         self.labels = ["testcontainers.swift": "true"]
         self.ports = []
+        self.extraHosts = []
         self.volumes = []
         self.bindMounts = []
         self.tmpfsMounts = []
         self.workingDirectory = nil
+        self.user = nil
         self.privileged = false
         self.capabilitiesToAdd = []
         self.capabilitiesToDrop = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
+        self.platform = nil
         self.healthCheck = nil
         self.retryPolicy = nil
         self.imageFromDockerfile = nil
         self.artifactConfig = .default
+        self.reuse = false
+        self.resourceLimits = ResourceLimits()
+        self.imagePullPolicy = .ifNotPresent
+        self.networks = []
+        self.networkMode = nil
+        self.dependencies = []
+        self.diagnostics = .default
+        self.imageSubstitutor = nil
+        self.registryAuth = nil
         self.preStartHooks = []
         self.postStartHooks = []
         self.preStopHooks = []
         self.postStopHooks = []
         self.preTerminateHooks = []
         self.postTerminateHooks = []
+        self.logConsumers = []
     }
 
     /// Initialize with Dockerfile to build.
@@ -358,35 +628,71 @@ public struct ContainerRequest: Sendable, Hashable {
         // Generate unique image tag for this build
         self.image = "testcontainers-swift-\(UUID().uuidString.lowercased()):latest"
         self.name = nil
+        self.autoGenerateName = true
         self.command = []
         self.entrypoint = nil
         self.environment = [:]
         self.labels = ["testcontainers.swift": "true"]
         self.ports = []
+        self.extraHosts = []
         self.volumes = []
         self.bindMounts = []
         self.tmpfsMounts = []
         self.workingDirectory = nil
+        self.user = nil
         self.privileged = false
         self.capabilitiesToAdd = []
         self.capabilitiesToDrop = []
         self.waitStrategy = .none
         self.host = "127.0.0.1"
+        self.platform = nil
         self.healthCheck = nil
         self.retryPolicy = nil
         self.imageFromDockerfile = imageFromDockerfile
         self.artifactConfig = .default
+        self.reuse = false
+        self.resourceLimits = ResourceLimits()
+        self.imagePullPolicy = .ifNotPresent
+        self.networks = []
+        self.networkMode = nil
+        self.dependencies = []
+        self.diagnostics = .default
+        self.imageSubstitutor = nil
+        self.registryAuth = nil
         self.preStartHooks = []
         self.postStartHooks = []
         self.preStopHooks = []
         self.postStopHooks = []
         self.preTerminateHooks = []
         self.postTerminateHooks = []
+        self.logConsumers = []
     }
 
-    public func withName(_ name: String) -> Self {
+    public func withName(_ name: String, autoGenerate: Bool = false) -> Self {
         var copy = self
         copy.name = name
+        copy.autoGenerateName = autoGenerate
+        return copy
+    }
+
+    /// Configures a generated container name using a deterministic prefix.
+    ///
+    /// Each `docker run` call receives a unique name in the format
+    /// `<prefix>-<timestamp>-<uuid8>`.
+    public func withAutoGeneratedName(_ prefix: String = "tc-swift") -> Self {
+        var copy = self
+        copy.name = prefix
+        copy.autoGenerateName = true
+        return copy
+    }
+
+    /// Configures a fixed container name.
+    ///
+    /// Fixed names can conflict when tests run concurrently.
+    public func withFixedName(_ name: String) -> Self {
+        var copy = self
+        copy.name = name
+        copy.autoGenerateName = false
         return copy
     }
 
@@ -513,9 +819,40 @@ public struct ContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    /// Expose a container port.
+    ///
+    /// - Parameters:
+    ///   - containerPort: Container-side port to expose.
+    ///   - hostPort: Optional host-side port. Leave `nil` to use Docker's random host
+    ///     port allocation (recommended for parallel tests). Setting a fixed host port
+    ///     can cause conflicts in parallel execution.
     public func withExposedPort(_ containerPort: Int, hostPort: Int? = nil) -> Self {
         var copy = self
         copy.ports.append(ContainerPort(containerPort: containerPort, hostPort: hostPort))
+        return copy
+    }
+
+    /// Expose a container port using Docker's random host port allocation.
+    public func withRandomPort(_ containerPort: Int) -> Self {
+        withExposedPort(containerPort, hostPort: nil)
+    }
+
+    /// Adds a custom host mapping for `/etc/hosts` via `--add-host`.
+    public func withExtraHost(hostname: String, ip: String) -> Self {
+        withExtraHost(ExtraHost(hostname: hostname, ip: ip))
+    }
+
+    /// Adds a custom host mapping for `/etc/hosts` via `--add-host`.
+    public func withExtraHost(_ host: ExtraHost) -> Self {
+        var copy = self
+        copy.extraHosts.append(host)
+        return copy
+    }
+
+    /// Adds multiple custom host mappings for `/etc/hosts`.
+    public func withExtraHosts(_ hosts: [ExtraHost]) -> Self {
+        var copy = self
+        copy.extraHosts.append(contentsOf: hosts)
         return copy
     }
 
@@ -664,6 +1001,44 @@ public struct ContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    /// Sets the container runtime user (`docker run --user`).
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "alpine:3")
+    ///     .withUser(uid: 1000, gid: 1000)
+    /// ```
+    public func withUser(_ user: ContainerUser) -> Self {
+        var copy = self
+        copy.user = user
+        return copy
+    }
+
+    /// Sets the container runtime user as a numeric UID.
+    public func withUser(uid: Int) -> Self {
+        withUser(ContainerUser(uid: uid))
+    }
+
+    /// Sets the container runtime user as numeric UID:GID.
+    public func withUser(uid: Int, gid: Int) -> Self {
+        withUser(ContainerUser(uid: uid, gid: gid))
+    }
+
+    /// Sets the container runtime user as a username.
+    public func withUser(username: String) -> Self {
+        withUser(ContainerUser(username: username))
+    }
+
+    /// Sets the container runtime user as username:group.
+    public func withUser(username: String, group: String) -> Self {
+        withUser(ContainerUser(username: username, group: group))
+    }
+
+    /// Sets the container runtime user as username:gid.
+    public func withUser(username: String, gid: Int) -> Self {
+        withUser(ContainerUser(username: username, gid: gid))
+    }
+
     /// Run the container in privileged mode, granting all capabilities.
     ///
     /// Privileged mode gives the container nearly all capabilities of the host machine.
@@ -724,9 +1099,112 @@ public struct ContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    /// Declares a dependency when this request is used in a container stack/group.
+    ///
+    /// If the same dependency is declared multiple times, the latest wait strategy wins.
+    public func dependsOn(_ containerName: String, waitFor: DependencyWaitStrategy = .ready) -> Self {
+        var copy = self
+        copy.dependencies.removeAll { $0.name == containerName }
+        copy.dependencies.append(ContainerDependency(name: containerName, waitStrategy: waitFor))
+        return copy
+    }
+
+    /// Declares multiple dependencies with a shared wait strategy.
+    ///
+    /// If any dependency appears multiple times, the latest declaration wins.
+    public func dependsOn(_ containerNames: [String], waitFor: DependencyWaitStrategy = .ready) -> Self {
+        var copy = self
+        for dependency in containerNames {
+            copy.dependencies.removeAll { $0.name == dependency }
+            copy.dependencies.append(ContainerDependency(name: dependency, waitStrategy: waitFor))
+        }
+        return copy
+    }
+
     public func withHost(_ host: String) -> Self {
         var copy = self
         copy.host = host
+        return copy
+    }
+
+    /// Sets a hard memory limit (`docker run --memory`).
+    ///
+    /// Example values: `"512m"`, `"1g"`.
+    public func withMemoryLimit(_ limit: String) -> Self {
+        var copy = self
+        copy.resourceLimits.memory = limit
+        return copy
+    }
+
+    /// Sets a soft memory reservation (`docker run --memory-reservation`).
+    ///
+    /// Example values: `"256m"`, `"768m"`.
+    public func withMemoryReservation(_ reservation: String) -> Self {
+        var copy = self
+        copy.resourceLimits.memoryReservation = reservation
+        return copy
+    }
+
+    /// Sets total memory+swap limit (`docker run --memory-swap`).
+    ///
+    /// Example values: `"1g"`, `"-1"` for unlimited swap.
+    public func withMemorySwap(_ swap: String) -> Self {
+        var copy = self
+        copy.resourceLimits.memorySwap = swap
+        return copy
+    }
+
+    /// Sets CPU limit (`docker run --cpus`).
+    ///
+    /// Example values: `"0.5"`, `"1.5"`.
+    public func withCpuLimit(_ cpus: String) -> Self {
+        var copy = self
+        copy.resourceLimits.cpus = cpus
+        return copy
+    }
+
+    /// Sets CPU share weight (`docker run --cpu-shares`).
+    ///
+    /// Docker default is 1024.
+    public func withCpuShares(_ shares: Int) -> Self {
+        var copy = self
+        copy.resourceLimits.cpuShares = shares
+        return copy
+    }
+
+    /// Sets CFS scheduler period in microseconds (`docker run --cpu-period`).
+    public func withCpuPeriod(_ period: Int) -> Self {
+        var copy = self
+        copy.resourceLimits.cpuPeriod = period
+        return copy
+    }
+
+    /// Sets CFS scheduler quota in microseconds (`docker run --cpu-quota`).
+    public func withCpuQuota(_ quota: Int) -> Self {
+        var copy = self
+        copy.resourceLimits.cpuQuota = quota
+        return copy
+    }
+
+    /// Sets all resource limits at once.
+    public func withResourceLimits(_ limits: ResourceLimits) -> Self {
+        var copy = self
+        copy.resourceLimits = limits
+        return copy
+    }
+
+    /// Sets the container platform passed to `docker run --platform`.
+    ///
+    /// Platform values should follow Docker's `<os>/<architecture>[/variant]` format,
+    /// such as `linux/amd64`, `linux/arm64`, or `linux/arm/v7`.
+    ///
+    /// Use this when you need deterministic architecture behavior, such as running
+    /// `linux/amd64` images on Apple Silicon via emulation.
+    ///
+    /// Invalid platform formats are rejected before Docker is invoked.
+    public func withPlatform(_ platform: String) -> Self {
+        var copy = self
+        copy.platform = platform
         return copy
     }
 
@@ -778,6 +1256,139 @@ public struct ContainerRequest: Sendable, Hashable {
     public func withRetry(_ policy: RetryPolicy) -> Self {
         var copy = self
         copy.retryPolicy = policy
+        return copy
+    }
+
+    /// Enables or disables container reuse.
+    ///
+    /// Reuse is opt-in per container request and still requires global reuse
+    /// enablement via `ReuseConfig`.
+    ///
+    /// - Parameter enabled: Whether reuse is enabled for this request. Default: true.
+    /// - Returns: Updated container request.
+    public func withReuse(_ enabled: Bool = true) -> Self {
+        var copy = self
+        copy.reuse = enabled
+        return copy
+    }
+
+    /// Specify when the container image should be pulled from the registry.
+    ///
+    /// - Parameter policy: The pull policy to use
+    /// - Returns: A new ContainerRequest with the specified pull policy
+    public func withImagePullPolicy(_ policy: ImagePullPolicy) -> Self {
+        var copy = self
+        copy.imagePullPolicy = policy
+        return copy
+    }
+
+    // MARK: - Network Configuration
+
+    /// Attach the container to a named network.
+    ///
+    /// - Parameter networkName: The Docker network name to attach to
+    /// - Returns: Updated ContainerRequest with the network added
+    public func withNetwork(_ networkName: String) -> Self {
+        var copy = self
+        copy.networks.append(NetworkConnection(networkName: networkName))
+        return copy
+    }
+
+    /// Attach the container to a network with a full configuration.
+    ///
+    /// - Parameter connection: The network connection configuration
+    /// - Returns: Updated ContainerRequest with the network added
+    public func withNetwork(_ connection: NetworkConnection) -> Self {
+        var copy = self
+        copy.networks.append(connection)
+        return copy
+    }
+
+    /// Attach the container to a named network with DNS aliases.
+    ///
+    /// - Parameters:
+    ///   - networkName: The Docker network name to attach to
+    ///   - aliases: DNS aliases for service discovery within the network
+    /// - Returns: Updated ContainerRequest with the network added
+    public func withNetwork(_ networkName: String, aliases: [String]) -> Self {
+        var copy = self
+        copy.networks.append(NetworkConnection(networkName: networkName, aliases: aliases))
+        return copy
+    }
+
+    /// Set the network mode for the container.
+    ///
+    /// - Parameter mode: The network mode (bridge, host, none, container)
+    /// - Returns: Updated ContainerRequest with the network mode set
+    public func withNetworkMode(_ mode: NetworkMode) -> Self {
+        var copy = self
+        copy.networkMode = mode
+        return copy
+    }
+
+    // MARK: - Registry Authentication
+
+    /// Configure authentication for pulling images from private registries.
+    ///
+    /// Example:
+    /// ```swift
+    /// let request = ContainerRequest(image: "ghcr.io/myorg/app:v1")
+    ///     .withRegistryAuth(.credentials(
+    ///         registry: "ghcr.io",
+    ///         username: "user",
+    ///         password: ProcessInfo.processInfo.environment["GITHUB_TOKEN"]!
+    ///     ))
+    /// ```
+    public func withRegistryAuth(_ auth: RegistryAuth) -> Self {
+        var copy = self
+        copy.registryAuth = auth
+        return copy
+    }
+
+    // MARK: - Image Substitutor
+
+    /// Sets an image substitutor for this container request.
+    ///
+    /// The substitutor transforms the image reference before the container is created.
+    /// This enables registry mirroring, organization prefixes, and custom transformations.
+    ///
+    /// - Parameter substitutor: Image transformation configuration
+    /// - Returns: Updated ContainerRequest with the substitutor set
+    public func withImageSubstitutor(_ substitutor: ImageSubstitutorConfig) -> Self {
+        var copy = self
+        copy.imageSubstitutor = substitutor
+        return copy
+    }
+
+    /// The image reference after applying any configured substitutor.
+    ///
+    /// If no substitutor is set, returns the original image.
+    public var resolvedImage: String {
+        if let substitutor = imageSubstitutor {
+            return substitutor.substitute(image)
+        }
+        return image
+    }
+
+    // MARK: - Diagnostics Configuration
+
+    /// Configure diagnostic collection for timeout failures.
+    ///
+    /// - Parameter config: The diagnostics configuration to use
+    /// - Returns: Updated ContainerRequest with diagnostics configured
+    public func withDiagnostics(_ config: DiagnosticsConfig) -> Self {
+        var copy = self
+        copy.diagnostics = config
+        return copy
+    }
+
+    /// Set the number of log lines to capture on timeout failure.
+    ///
+    /// - Parameter lines: Number of lines from the end of container logs to capture
+    /// - Returns: Updated ContainerRequest with log tail lines configured
+    public func withLogTailLines(_ lines: Int) -> Self {
+        var copy = self
+        copy.diagnostics.logTailLines = max(0, lines)
         return copy
     }
 
@@ -870,6 +1481,48 @@ public struct ContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    /// Adds labels useful for test-level parallel diagnostics and cleanup.
+    ///
+    /// Labels added:
+    /// - `testcontainers.swift.test`
+    /// - `testcontainers.swift.session`
+    /// - `testcontainers.swift.timestamp`
+    public func withTestLabels(testName: String? = nil, sessionID: String? = nil) -> Self {
+        var copy = self
+
+        if let testName {
+            copy.labels["testcontainers.swift.test"] = testName
+        }
+
+        if let sessionID {
+            copy.labels["testcontainers.swift.session"] = sessionID
+        }
+
+        copy.labels["testcontainers.swift.timestamp"] = String(Int(Date().timeIntervalSince1970))
+        return copy
+    }
+
+    /// Applies parallel safety defaults to the container request.
+    public func withParallelSafety(_ config: ParallelSafetyConfig = .default) -> Self {
+        var copy = self
+        copy.autoGenerateName = config.autoGenerateNames
+
+        if let sessionID = config.sessionID {
+            copy.labels["testcontainers.swift.session"] = sessionID
+        }
+
+        if config.validatePortAllocation {
+            for mapping in copy.ports where mapping.hostPort != nil {
+                fputs(
+                    "Warning: fixed host port \(mapping.hostPort!) may conflict in parallel tests.\n",
+                    stderr
+                )
+            }
+        }
+
+        return copy
+    }
+
     // MARK: - Lifecycle Hooks
 
     /// Adds a pre-start hook that runs before the container is created.
@@ -936,5 +1589,53 @@ public struct ContainerRequest: Sendable, Hashable {
             copy.postTerminateHooks.append(hook)
         }
         return copy
+    }
+
+    // MARK: - Log Consumers
+
+    /// Register a log consumer to receive container log output.
+    ///
+    /// Log consumers receive log lines in real-time as the container produces output.
+    /// Multiple consumers can be registered and all will receive the same log lines.
+    ///
+    /// - Parameter consumer: The log consumer to register
+    /// - Returns: Updated ContainerRequest with the consumer added
+    public func withLogConsumer(_ consumer: any LogConsumer) -> Self {
+        var copy = self
+        copy.logConsumers.append(LogConsumerEntry(consumer))
+        return copy
+    }
+
+    /// Register multiple log consumers at once.
+    ///
+    /// - Parameter consumers: Array of log consumers to register
+    /// - Returns: Updated ContainerRequest with consumers added
+    public func withLogConsumers(_ consumers: [any LogConsumer]) -> Self {
+        var copy = self
+        for consumer in consumers {
+            copy.logConsumers.append(LogConsumerEntry(consumer))
+        }
+        return copy
+    }
+
+    static func isValidPlatform(_ platform: String) -> Bool {
+        let segments = platform.split(separator: "/", omittingEmptySubsequences: false)
+        guard segments.count == 2 || segments.count == 3 else { return false }
+
+        return segments.allSatisfy { segment in
+            guard !segment.isEmpty else { return false }
+
+            return segment.unicodeScalars.allSatisfy { scalar in
+                platformSegmentAllowedCharacters.contains(scalar)
+            }
+        }
+    }
+
+    func resolvedName() -> String? {
+        guard autoGenerateName else { return name }
+
+        let rawPrefix = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = (rawPrefix?.isEmpty == false) ? rawPrefix! : "tc-swift"
+        return ContainerNameGenerator.generateUniqueName(prefix: prefix)
     }
 }

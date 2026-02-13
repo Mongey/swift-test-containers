@@ -8,10 +8,17 @@ struct CommandOutput: Sendable {
 }
 
 struct ProcessRunner: Sendable {
+    let logger: TCLogger
+
+    init(logger: TCLogger = .null) {
+        self.logger = logger
+    }
+
     func run(
         executable: String,
         arguments: [String],
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        stdinData: Data? = nil
     ) async throws -> CommandOutput {
         // Convert environment to Subprocess.Environment format
         let env: Subprocess.Environment
@@ -25,25 +32,101 @@ struct ProcessRunner: Sendable {
             env = .inherit.updating(updates)
         }
 
-        let result = try await Subprocess.run(
-            .name(executable),
-            arguments: Arguments(arguments),
-            environment: env,
-            output: .string(limit: 1024 * 1024),  // 1MB limit
-            error: .string(limit: 1024 * 1024)    // 1MB limit
-        )
+        logger.trace("Executing command", metadata: [
+            "executable": executable,
+            "arguments": arguments.joined(separator: " "),
+        ])
+        let start = ContinuousClock.now
 
+        let output: CommandOutput
+        if let stdinData {
+            // Use Foundation.Process for stdin piping due to
+            // swift-subprocess .data() input issue on macOS
+            output = try await Self.runWithStdin(
+                executable: executable,
+                arguments: arguments,
+                environment: environment,
+                stdinData: stdinData
+            )
+        } else {
+            let result = try await Subprocess.run(
+                .name(executable),
+                arguments: Arguments(arguments),
+                environment: env,
+                output: .string(limit: 1024 * 1024),
+                error: .string(limit: 1024 * 1024)
+            )
+            output = Self.makeOutput(terminationStatus: result.terminationStatus, stdout: result.standardOutput, stderr: result.standardError)
+        }
+
+        let duration = ContinuousClock.now - start
+        logger.trace("Command completed", metadata: [
+            "executable": executable,
+            "exitCode": "\(output.exitCode)",
+            "duration": "\(duration)",
+        ])
+
+        return output
+    }
+
+    private static func runWithStdin(
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        stdinData: Data
+    ) async throws -> CommandOutput {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global().async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: executable)
+                process.arguments = arguments
+
+                var env = ProcessInfo.processInfo.environment
+                for (key, value) in environment {
+                    env[key] = value
+                }
+                process.environment = env
+
+                let stdinPipe = Pipe()
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardInput = stdinPipe
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                do {
+                    try process.run()
+                    stdinPipe.fileHandleForWriting.write(stdinData)
+                    stdinPipe.fileHandleForWriting.closeFile()
+                    process.waitUntilExit()
+
+                    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+                    let output = CommandOutput(
+                        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+                        stderr: String(data: stderrData, encoding: .utf8) ?? "",
+                        exitCode: process.terminationStatus
+                    )
+                    continuation.resume(returning: output)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func makeOutput(terminationStatus: Subprocess.TerminationStatus, stdout: String?, stderr: String?) -> CommandOutput {
         let exitCode: Int32
-        switch result.terminationStatus {
+        switch terminationStatus {
         case .exited(let code):
             exitCode = Int32(code)
         case .unhandledException(let code):
             exitCode = Int32(code)
         }
-
         return CommandOutput(
-            stdout: result.standardOutput ?? "",
-            stderr: result.standardError ?? "",
+            stdout: stdout ?? "",
+            stderr: stderr ?? "",
             exitCode: exitCode
         )
     }

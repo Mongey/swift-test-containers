@@ -12,6 +12,218 @@ import Testing
     ])
 }
 
+// MARK: - ExtraHost Tests
+
+@Test func extraHost_dockerFlag() {
+    let host = ExtraHost(hostname: "db.local", ip: "10.0.0.2")
+    #expect(host.dockerFlag == "db.local:10.0.0.2")
+}
+
+@Test func extraHost_gatewayFactory_usesHostGateway() {
+    let host = ExtraHost.gateway(hostname: "host.internal")
+    #expect(host.hostname == "host.internal")
+    #expect(host.ip == "host-gateway")
+    #expect(host.dockerFlag == "host.internal:host-gateway")
+}
+
+@Test func containerRequest_extraHosts_defaultsToEmpty() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.extraHosts.isEmpty)
+}
+
+@Test func containerRequest_withExtraHost_addsSingleMapping() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withExtraHost(hostname: "db.local", ip: "10.0.0.2")
+
+    #expect(request.extraHosts == [
+        ExtraHost(hostname: "db.local", ip: "10.0.0.2")
+    ])
+}
+
+@Test func containerRequest_withExtraHostStruct_addsSingleMapping() {
+    let host = ExtraHost.gateway(hostname: "host.internal")
+    let request = ContainerRequest(image: "alpine:3")
+        .withExtraHost(host)
+
+    #expect(request.extraHosts == [host])
+}
+
+@Test func containerRequest_withExtraHosts_appendsMappings() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withExtraHost(hostname: "db.local", ip: "10.0.0.2")
+        .withExtraHosts([
+            ExtraHost(hostname: "cache.local", ip: "10.0.0.3"),
+            .gateway(hostname: "host.internal"),
+        ])
+
+    #expect(request.extraHosts == [
+        ExtraHost(hostname: "db.local", ip: "10.0.0.2"),
+        ExtraHost(hostname: "cache.local", ip: "10.0.0.3"),
+        ExtraHost(hostname: "host.internal", ip: "host-gateway"),
+    ])
+}
+
+// MARK: - ResourceLimits Tests
+
+@Test func resourceLimits_defaultsToNil() {
+    let request = ContainerRequest(image: "alpine:3")
+
+    #expect(request.resourceLimits.memory == nil)
+    #expect(request.resourceLimits.memoryReservation == nil)
+    #expect(request.resourceLimits.memorySwap == nil)
+    #expect(request.resourceLimits.cpus == nil)
+    #expect(request.resourceLimits.cpuShares == nil)
+    #expect(request.resourceLimits.cpuPeriod == nil)
+    #expect(request.resourceLimits.cpuQuota == nil)
+}
+
+@Test func resourceLimits_withMemoryBuilders_setsValues() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withMemoryLimit("512m")
+        .withMemoryReservation("256m")
+        .withMemorySwap("1g")
+
+    #expect(request.resourceLimits.memory == "512m")
+    #expect(request.resourceLimits.memoryReservation == "256m")
+    #expect(request.resourceLimits.memorySwap == "1g")
+}
+
+@Test func resourceLimits_withCpuBuilders_setsValues() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withCpuLimit("1.5")
+        .withCpuShares(2048)
+        .withCpuPeriod(100_000)
+        .withCpuQuota(50_000)
+
+    #expect(request.resourceLimits.cpus == "1.5")
+    #expect(request.resourceLimits.cpuShares == 2048)
+    #expect(request.resourceLimits.cpuPeriod == 100_000)
+    #expect(request.resourceLimits.cpuQuota == 50_000)
+}
+
+@Test func resourceLimits_withResourceLimits_setsAllValues() {
+    var limits = ResourceLimits()
+    limits.memory = "1g"
+    limits.memoryReservation = "512m"
+    limits.memorySwap = "2g"
+    limits.cpus = "2.0"
+    limits.cpuShares = 1024
+    limits.cpuPeriod = 100_000
+    limits.cpuQuota = 75_000
+
+    let request = ContainerRequest(image: "alpine:3")
+        .withResourceLimits(limits)
+
+    #expect(request.resourceLimits == limits)
+}
+
+@Test func resourceLimits_builderChaining_preservesOtherValues() {
+    let request = ContainerRequest(image: "postgres:16")
+        .withName("resource-limits-test")
+        .withMemoryLimit("768m")
+        .withCpuLimit("0.5")
+        .withEnvironment(["POSTGRES_PASSWORD": "secret"])
+        .withExposedPort(5432)
+
+    #expect(request.name == "resource-limits-test")
+    #expect(request.resourceLimits.memory == "768m")
+    #expect(request.resourceLimits.cpus == "0.5")
+    #expect(request.environment["POSTGRES_PASSWORD"] == "secret")
+    #expect(request.ports == [ContainerPort(containerPort: 5432)])
+}
+
+// MARK: - ContainerUser Tests
+
+@Test func containerUser_uid_formatsDockerFlag() {
+    let user = ContainerUser(uid: 1000)
+    #expect(user.dockerFlag == "1000")
+}
+
+@Test func containerUser_uidGid_formatsDockerFlag() {
+    let user = ContainerUser(uid: 1000, gid: 1000)
+    #expect(user.dockerFlag == "1000:1000")
+}
+
+@Test func containerUser_username_formatsDockerFlag() {
+    let user = ContainerUser(username: "postgres")
+    #expect(user.dockerFlag == "postgres")
+}
+
+@Test func containerUser_usernameGroup_formatsDockerFlag() {
+    let user = ContainerUser(username: "postgres", group: "postgres")
+    #expect(user.dockerFlag == "postgres:postgres")
+}
+
+@Test func containerUser_usernameGid_formatsDockerFlag() {
+    let user = ContainerUser(username: "nginx", gid: 999)
+    #expect(user.dockerFlag == "nginx:999")
+}
+
+// MARK: - ContainerRequest.withUser Tests
+
+@Test func containerRequest_user_defaultsToNil() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.user == nil)
+}
+
+@Test func containerRequest_withUserUid_setsUser() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withUser(uid: 1000)
+
+    #expect(request.user?.dockerFlag == "1000")
+}
+
+@Test func containerRequest_withUserUidGid_setsUser() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withUser(uid: 1000, gid: 1000)
+
+    #expect(request.user?.dockerFlag == "1000:1000")
+}
+
+@Test func containerRequest_withUserUsername_setsUser() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withUser(username: "postgres")
+
+    #expect(request.user?.dockerFlag == "postgres")
+}
+
+@Test func containerRequest_withUserUsernameGroup_setsUser() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withUser(username: "postgres", group: "postgres")
+
+    #expect(request.user?.dockerFlag == "postgres:postgres")
+}
+
+@Test func containerRequest_withUserContainerUser_setsUser() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withUser(ContainerUser(username: "nginx", gid: 999))
+
+    #expect(request.user?.dockerFlag == "nginx:999")
+}
+
+@Test func containerRequest_withUser_canBeChained() {
+    let request = ContainerRequest(image: "postgres:16")
+        .withUser(uid: 999, gid: 999)
+        .withEnvironment(["POSTGRES_PASSWORD": "secret"])
+        .withExposedPort(5432)
+
+    #expect(request.user?.dockerFlag == "999:999")
+    #expect(request.environment["POSTGRES_PASSWORD"] == "secret")
+    #expect(request.ports == [ContainerPort(containerPort: 5432)])
+}
+
+@Test func containerRequest_withUser_conformsToHashable() {
+    let request1 = ContainerRequest(image: "alpine:3")
+        .withUser(uid: 1000, gid: 1000)
+    let request2 = ContainerRequest(image: "alpine:3")
+        .withUser(uid: 1000, gid: 1000)
+    let request3 = ContainerRequest(image: "alpine:3")
+        .withUser(uid: 1001, gid: 1001)
+
+    #expect(request1 == request2)
+    #expect(request1 != request3)
+}
+
 // MARK: - WaitStrategy.logMatches Tests
 
 @Test func waitStrategy_logMatches_configuresCorrectly() {
@@ -907,6 +1119,42 @@ import Testing
     #expect(request.workingDirectory == "/my app/data")
 }
 
+// MARK: - Platform Selection Tests
+
+@Test func containerRequest_platform_defaultsToNil() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.platform == nil)
+}
+
+@Test func containerRequest_withPlatform_setsPlatform() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withPlatform("linux/amd64")
+
+    #expect(request.platform == "linux/amd64")
+}
+
+@Test func containerRequest_withPlatform_canBeChained() {
+    let request = ContainerRequest(image: "redis:7")
+        .withPlatform("linux/arm64")
+        .withExposedPort(6379)
+        .waitingFor(.tcpPort(6379))
+
+    #expect(request.platform == "linux/arm64")
+    #expect(request.ports == [ContainerPort(containerPort: 6379)])
+}
+
+@Test func containerRequest_withPlatform_conformsToHashable() {
+    let request1 = ContainerRequest(image: "alpine:3")
+        .withPlatform("linux/amd64")
+    let request2 = ContainerRequest(image: "alpine:3")
+        .withPlatform("linux/amd64")
+    let request3 = ContainerRequest(image: "alpine:3")
+        .withPlatform("linux/arm64")
+
+    #expect(request1 == request2)
+    #expect(request1 != request3)
+}
+
 // MARK: - Privileged Mode & Capabilities Tests
 
 @Test func containerRequest_privileged_defaultsToFalse() {
@@ -954,4 +1202,307 @@ import Testing
 @Test func capability_supportsCustomRawValues() {
     let custom = Capability(rawValue: "CUSTOM_CAP")
     #expect(custom.rawValue == "CUSTOM_CAP")
+}
+
+// MARK: - ImagePullPolicy Tests
+
+@Test func imagePullPolicy_defaultsToIfNotPresent() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.imagePullPolicy == .ifNotPresent)
+}
+
+@Test func imagePullPolicy_withAlways_setsPolicy() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.always)
+
+    #expect(request.imagePullPolicy == .always)
+}
+
+@Test func imagePullPolicy_withIfNotPresent_setsPolicy() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.ifNotPresent)
+
+    #expect(request.imagePullPolicy == .ifNotPresent)
+}
+
+@Test func imagePullPolicy_withNever_setsPolicy() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.never)
+
+    #expect(request.imagePullPolicy == .never)
+}
+
+@Test func imagePullPolicy_canBeChainedWithOtherBuilders() {
+    let request = ContainerRequest(image: "redis:7")
+        .withImagePullPolicy(.always)
+        .withExposedPort(6379)
+        .withEnvironment(["REDIS_PASSWORD": "test"])
+
+    #expect(request.imagePullPolicy == .always)
+    #expect(request.ports.count == 1)
+    #expect(request.environment["REDIS_PASSWORD"] == "test")
+}
+
+@Test func imagePullPolicy_conformsToHashable() {
+    let request1 = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.always)
+    let request2 = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.always)
+    let request3 = ContainerRequest(image: "alpine:3")
+        .withImagePullPolicy(.never)
+
+    #expect(request1 == request2)
+    #expect(request1 != request3)
+}
+
+@Test func imagePullPolicy_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withImagePullPolicy(.always)
+
+    #expect(original.imagePullPolicy == .ifNotPresent)
+    #expect(modified.imagePullPolicy == .always)
+}
+
+@Test func imagePullPolicy_initWithDockerfile_defaultsToIfNotPresent() {
+    let dockerfile = ImageFromDockerfile()
+    let request = ContainerRequest(imageFromDockerfile: dockerfile)
+
+    #expect(request.imagePullPolicy == .ifNotPresent)
+}
+
+// MARK: - NetworkConnection Tests
+
+@Test func networkAttachment_initWithDefaults() {
+    let attachment = NetworkConnection(networkName: "my-net")
+
+    #expect(attachment.networkName == "my-net")
+    #expect(attachment.aliases.isEmpty)
+    #expect(attachment.ipv4Address == nil)
+    #expect(attachment.ipv6Address == nil)
+}
+
+@Test func networkAttachment_initWithAllProperties() {
+    let attachment = NetworkConnection(
+        networkName: "custom-net",
+        aliases: ["service", "app"],
+        ipv4Address: "172.20.0.5",
+        ipv6Address: "fd00::5"
+    )
+
+    #expect(attachment.networkName == "custom-net")
+    #expect(attachment.aliases == ["service", "app"])
+    #expect(attachment.ipv4Address == "172.20.0.5")
+    #expect(attachment.ipv6Address == "fd00::5")
+}
+
+@Test func networkAttachment_conformsToHashable() {
+    let a1 = NetworkConnection(networkName: "net1", aliases: ["svc"])
+    let a2 = NetworkConnection(networkName: "net1", aliases: ["svc"])
+    let a3 = NetworkConnection(networkName: "net2", aliases: ["svc"])
+
+    #expect(a1 == a2)
+    #expect(a1 != a3)
+}
+
+// MARK: - NetworkMode Tests
+
+@Test func networkMode_bridgeDockerFlag() {
+    #expect(NetworkMode.bridge.dockerFlag == "bridge")
+}
+
+@Test func networkMode_hostDockerFlag() {
+    #expect(NetworkMode.host.dockerFlag == "host")
+}
+
+@Test func networkMode_noneDockerFlag() {
+    #expect(NetworkMode.none.dockerFlag == "none")
+}
+
+@Test func networkMode_containerDockerFlag() {
+    #expect(NetworkMode.container("my-app").dockerFlag == "container:my-app")
+}
+
+@Test func networkMode_customDockerFlag() {
+    #expect(NetworkMode.custom("my-network").dockerFlag == "my-network")
+}
+
+@Test func networkMode_conformsToHashable() {
+    #expect(NetworkMode.host == NetworkMode.host)
+    #expect(NetworkMode.host != NetworkMode.bridge)
+    #expect(NetworkMode.container("a") == NetworkMode.container("a"))
+    #expect(NetworkMode.container("a") != NetworkMode.container("b"))
+}
+
+// MARK: - ContainerRequest Network Tests
+
+@Test func containerRequest_networks_defaultsToEmpty() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.networks.isEmpty)
+}
+
+@Test func containerRequest_networkMode_defaultsToNil() {
+    let request = ContainerRequest(image: "alpine:3")
+    #expect(request.networkMode == nil)
+}
+
+@Test func containerRequest_withNetwork_singleNameString() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withNetwork("test-network")
+
+    #expect(request.networks.count == 1)
+    #expect(request.networks[0].networkName == "test-network")
+    #expect(request.networks[0].aliases.isEmpty)
+}
+
+@Test func containerRequest_withNetwork_nameAndAliases() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withNetwork("test-network", aliases: ["service1", "app"])
+
+    #expect(request.networks.count == 1)
+    #expect(request.networks[0].networkName == "test-network")
+    #expect(request.networks[0].aliases == ["service1", "app"])
+}
+
+@Test func containerRequest_withNetwork_attachmentStruct() {
+    let attachment = NetworkConnection(
+        networkName: "custom-network",
+        aliases: ["service"],
+        ipv4Address: "172.20.0.5"
+    )
+    let request = ContainerRequest(image: "alpine:3")
+        .withNetwork(attachment)
+
+    #expect(request.networks.count == 1)
+    #expect(request.networks[0].ipv4Address == "172.20.0.5")
+}
+
+@Test func containerRequest_withNetwork_multipleNetworks() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withNetwork("network1")
+        .withNetwork("network2", aliases: ["alias1"])
+
+    #expect(request.networks.count == 2)
+    #expect(request.networks[0].networkName == "network1")
+    #expect(request.networks[1].networkName == "network2")
+    #expect(request.networks[1].aliases == ["alias1"])
+}
+
+@Test func containerRequest_withNetworkMode_setsMode() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withNetworkMode(.host)
+
+    #expect(request.networkMode == .host)
+}
+
+@Test func containerRequest_withNetworkMode_containerMode() {
+    let request = ContainerRequest(image: "alpine:3")
+        .withNetworkMode(.container("other-container"))
+
+    #expect(request.networkMode == .container("other-container"))
+}
+
+@Test func containerRequest_withNetwork_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withNetwork("test-net")
+
+    #expect(original.networks.isEmpty)
+    #expect(modified.networks.count == 1)
+}
+
+@Test func containerRequest_withNetworkMode_returnsNewInstance() {
+    let original = ContainerRequest(image: "alpine:3")
+    let modified = original.withNetworkMode(.host)
+
+    #expect(original.networkMode == nil)
+    #expect(modified.networkMode == .host)
+}
+
+@Test func containerRequest_withNetwork_canBeChained() {
+    let request = ContainerRequest(image: "postgres:16")
+        .withNetwork("app-network", aliases: ["db", "postgres"])
+        .withExposedPort(5432)
+        .withEnvironment(["POSTGRES_PASSWORD": "secret"])
+
+    #expect(request.networks.count == 1)
+    #expect(request.ports.count == 1)
+    #expect(request.environment["POSTGRES_PASSWORD"] == "secret")
+}
+
+@Test func containerRequest_withNetwork_conformsToHashable() {
+    let request1 = ContainerRequest(image: "alpine:3")
+        .withNetwork("net1")
+    let request2 = ContainerRequest(image: "alpine:3")
+        .withNetwork("net1")
+    let request3 = ContainerRequest(image: "alpine:3")
+        .withNetwork("net2")
+
+    #expect(request1 == request2)
+    #expect(request1 != request3)
+}
+
+// MARK: - Image Substitutor Tests
+
+@Test func containerRequest_imageSubstitutor_defaultsToNil() {
+    let request = ContainerRequest(image: "redis:7")
+    #expect(request.imageSubstitutor == nil)
+}
+
+@Test func containerRequest_imageSubstitutor_initDockerfile_defaultsToNil() {
+    let request = ContainerRequest(imageFromDockerfile: ImageFromDockerfile())
+    #expect(request.imageSubstitutor == nil)
+}
+
+@Test func containerRequest_withImageSubstitutor_setsSubstitutor() {
+    let substitutor = ImageSubstitutorConfig.registryMirror("mirror.test")
+    let request = ContainerRequest(image: "redis:7")
+        .withImageSubstitutor(substitutor)
+
+    #expect(request.imageSubstitutor == substitutor)
+}
+
+@Test func containerRequest_withImageSubstitutor_returnsNewInstance() {
+    let substitutor = ImageSubstitutorConfig.registryMirror("mirror.test")
+    let original = ContainerRequest(image: "redis:7")
+    let modified = original.withImageSubstitutor(substitutor)
+
+    #expect(original.imageSubstitutor == nil)
+    #expect(modified.imageSubstitutor == substitutor)
+}
+
+@Test func containerRequest_withImageSubstitutor_chainsWithOtherBuilders() {
+    let substitutor = ImageSubstitutorConfig.registryMirror("mirror.test")
+    let request = ContainerRequest(image: "redis:7")
+        .withImageSubstitutor(substitutor)
+        .withExposedPort(6379)
+        .withName("test-redis")
+
+    #expect(request.imageSubstitutor == substitutor)
+    #expect(request.ports.count == 1)
+    #expect(request.name == "test-redis")
+}
+
+@Test func containerRequest_withImageSubstitutor_conformsToHashable() {
+    let substitutor = ImageSubstitutorConfig.registryMirror("mirror.test")
+    let request1 = ContainerRequest(image: "redis:7")
+        .withImageSubstitutor(substitutor)
+    let request2 = ContainerRequest(image: "redis:7")
+        .withImageSubstitutor(substitutor)
+    let request3 = ContainerRequest(image: "redis:7")
+
+    #expect(request1 == request2)
+    #expect(request1 != request3)
+}
+
+@Test func containerRequest_resolvedImage_withSubstitutor() {
+    let substitutor = ImageSubstitutorConfig.registryMirror("mirror.co")
+    let request = ContainerRequest(image: "redis:7")
+        .withImageSubstitutor(substitutor)
+
+    #expect(request.resolvedImage == "mirror.co/redis:7")
+}
+
+@Test func containerRequest_resolvedImage_withoutSubstitutor() {
+    let request = ContainerRequest(image: "redis:7")
+
+    #expect(request.resolvedImage == "redis:7")
 }

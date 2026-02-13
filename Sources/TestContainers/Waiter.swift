@@ -5,14 +5,71 @@ enum Waiter {
         timeout: Duration,
         pollInterval: Duration,
         description: String,
+        logger: TCLogger = .null,
         _ predicate: @Sendable () async throws -> Bool
     ) async throws {
+        logger.debug("Starting wait", metadata: [
+            "description": description,
+            "timeout": "\(timeout)",
+            "pollInterval": "\(pollInterval)",
+        ])
         let clock = ContinuousClock()
         let start = clock.now
         while true {
-            if try await predicate() { return }
+            if try await predicate() {
+                let duration = start.duration(to: clock.now)
+                logger.debug("Wait condition met", metadata: [
+                    "description": description,
+                    "duration": "\(duration)",
+                ])
+                return
+            }
             if start.duration(to: clock.now) >= timeout {
+                logger.error("Wait timed out", metadata: [
+                    "description": description,
+                    "timeout": "\(timeout)",
+                ])
                 throw TestContainersError.timeout(description)
+            }
+            try await Task.sleep(for: pollInterval)
+        }
+    }
+
+    /// Poll-based wait that collects diagnostics on timeout.
+    ///
+    /// Like `wait()` but calls `onTimeout` to gather diagnostic information
+    /// before throwing `TestContainersError.timeoutWithDiagnostics`.
+    static func waitWithDiagnostics(
+        timeout: Duration,
+        pollInterval: Duration,
+        description: String,
+        logger: TCLogger = .null,
+        onTimeout: @Sendable () async -> TimeoutDiagnostics,
+        _ predicate: @Sendable () async throws -> Bool
+    ) async throws {
+        logger.debug("Starting wait", metadata: [
+            "description": description,
+            "timeout": "\(timeout)",
+            "pollInterval": "\(pollInterval)",
+        ])
+        let clock = ContinuousClock()
+        let start = clock.now
+        while true {
+            if try await predicate() {
+                let duration = start.duration(to: clock.now)
+                logger.debug("Wait condition met", metadata: [
+                    "description": description,
+                    "duration": "\(duration)",
+                ])
+                return
+            }
+            if start.duration(to: clock.now) >= timeout {
+                logger.error("Wait timed out", metadata: [
+                    "description": description,
+                    "timeout": "\(timeout)",
+                ])
+                let diagnostics = await onTimeout()
+                throw TestContainersError.timeoutWithDiagnostics(diagnostics)
             }
             try await Task.sleep(for: pollInterval)
         }
