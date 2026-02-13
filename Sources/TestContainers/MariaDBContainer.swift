@@ -24,6 +24,9 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
     /// Port for MariaDB connections (default: 3306).
     public var port: Int
 
+    /// Optional fixed host port binding. When nil, Docker assigns a random host port.
+    public var hostPort: Int?
+
     /// Name of the database to create on startup.
     public var database: String
 
@@ -45,20 +48,37 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
     /// Host address for connecting to the container.
     public var host: String
 
+    /// Initialization script files mounted into `/docker-entrypoint-initdb.d/`.
+    public var initScripts: [String]
+
+    /// Optional custom config files mounted into `/etc/mysql/conf.d/`.
+    public var configFiles: [ConfigFile]
+
+    public struct ConfigFile: Sendable, Hashable {
+        public let hostPath: String
+        public let containerFilename: String
+
+        public init(hostPath: String, containerFilename: String) {
+            self.hostPath = hostPath
+            self.containerFilename = containerFilename
+        }
+    }
+
     /// Creates a new MariaDB container request with default configuration.
     ///
     /// Defaults:
-    /// - Image: mariadb:11
+    /// - Image: mariadb:11.0
     /// - Database: test
     /// - Root password: test
     /// - Username: test
     /// - Password: test
     /// - Port: 3306
     ///
-    /// - Parameter image: Docker image to use (default: "mariadb:11")
-    public init(image: String = "mariadb:11") {
+    /// - Parameter image: Docker image to use (default: "mariadb:11.0")
+    public init(image: String = "mariadb:11.0") {
         self.image = image
         self.port = 3306
+        self.hostPort = nil
         self.database = "test"
         self.rootPassword = "test"
         self.username = "test"
@@ -66,6 +86,8 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
         self.environment = [:]
         self.waitStrategy = nil
         self.host = "127.0.0.1"
+        self.initScripts = []
+        self.configFiles = []
     }
 
     /// Sets the database name to create on startup.
@@ -111,6 +133,20 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    /// Sets the MariaDB container port.
+    /// - Parameter port: Container port
+    public func withContainerPort(_ port: Int) -> Self {
+        withPort(port)
+    }
+
+    /// Sets a fixed host port mapping.
+    /// - Parameter port: Host port
+    public func withHostPort(_ port: Int) -> Self {
+        var copy = self
+        copy.hostPort = port
+        return copy
+    }
+
     /// Sets environment variables for the container.
     ///
     /// Note: MariaDB 10.2.38+, 10.3.29+, 10.4.19+, 10.5.10+, and all 10.6+
@@ -135,11 +171,47 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
         return copy
     }
 
+    /// Sets the wait strategy for container readiness.
+    /// Alias for `withWaitStrategy(_:)`.
+    /// - Parameter strategy: Wait strategy to use
+    public func waitingFor(_ strategy: WaitStrategy) -> Self {
+        withWaitStrategy(strategy)
+    }
+
     /// Sets the host address for connecting to the container.
     /// - Parameter host: Host address (default: "127.0.0.1")
     public func withHost(_ host: String) -> Self {
         var copy = self
         copy.host = host
+        return copy
+    }
+
+    /// Mounts a single init script into `/docker-entrypoint-initdb.d/`.
+    /// - Parameter scriptPath: Host path to `.sql`, `.sql.gz`, or `.sh` script
+    public func withInitScript(_ scriptPath: String) -> Self {
+        var copy = self
+        copy.initScripts.append(scriptPath)
+        return copy
+    }
+
+    /// Mounts multiple init scripts into `/docker-entrypoint-initdb.d/`.
+    /// - Parameter scriptPaths: Host script paths
+    public func withInitScripts(_ scriptPaths: [String]) -> Self {
+        var copy = self
+        copy.initScripts.append(contentsOf: scriptPaths)
+        return copy
+    }
+
+    /// Mounts a custom MariaDB config file into `/etc/mysql/conf.d/`.
+    /// - Parameters:
+    ///   - configPath: Host path to config file
+    ///   - filename: Optional destination filename (defaults to source basename)
+    public func withConfigFile(_ configPath: String, as filename: String? = nil) -> Self {
+        var copy = self
+        let resolvedFilename = filename ?? URL(fileURLWithPath: configPath).lastPathComponent
+        copy.configFiles.append(
+            ConfigFile(hostPath: configPath, containerFilename: resolvedFilename)
+        )
         return copy
     }
 
@@ -159,7 +231,7 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
 
         var request = ContainerRequest(image: image)
             .withEnvironment(env)
-            .withExposedPort(port)
+            .withExposedPort(port, hostPort: hostPort)
             .withHost(host)
 
         // Store metadata in labels for connection string generation
@@ -174,6 +246,23 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
                 .withLabel("testcontainers.mariadb.password", password)
         }
 
+        for scriptPath in initScripts {
+            let filename = URL(fileURLWithPath: scriptPath).lastPathComponent
+            request = request.withBindMount(
+                hostPath: scriptPath,
+                containerPath: "/docker-entrypoint-initdb.d/\(filename)",
+                readOnly: true
+            )
+        }
+
+        for configFile in configFiles {
+            request = request.withBindMount(
+                hostPath: configFile.hostPath,
+                containerPath: "/etc/mysql/conf.d/\(configFile.containerFilename)",
+                readOnly: true
+            )
+        }
+
         // Apply wait strategy (default or custom)
         if let waitStrategy = waitStrategy {
             request = request.waitingFor(waitStrategy)
@@ -183,6 +272,23 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
         }
 
         return request
+    }
+
+    /// Alias for `toContainerRequest()`.
+    internal func asContainerRequest() -> ContainerRequest {
+        toContainerRequest()
+    }
+
+    /// Starts MariaDB for the duration of the provided operation.
+    /// - Parameters:
+    ///   - docker: Docker client instance
+    ///   - operation: Operation to execute with running MariaDB
+    /// - Returns: Operation return value
+    public func withContainer<T>(
+        docker: DockerClient = DockerClient(),
+        operation: @Sendable (MariaDBContainer) async throws -> T
+    ) async throws -> T {
+        try await withMariaDBContainer(self, docker: docker, operation: operation)
     }
 }
 
@@ -281,6 +387,11 @@ public actor MariaDBContainer {
         try await container.terminate()
     }
 
+    /// Access underlying generic Container for advanced operations.
+    public var underlyingContainer: Container {
+        container
+    }
+
     private func buildConnectionString(
         username: String,
         password: String,
@@ -291,6 +402,80 @@ public actor MariaDBContainer {
     ) -> String {
         let encodedPassword = password.addingPercentEncoding(withAllowedCharacters: .urlPasswordAllowed) ?? password
         var url = "mysql://\(username):\(encodedPassword)@\(host):\(port)/\(database)"
+
+        if !parameters.isEmpty {
+            let queryString = parameters
+                .sorted(by: { $0.key < $1.key })
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: "&")
+            url += "?\(queryString)"
+        }
+
+        return url
+    }
+}
+
+extension Container {
+    /// Returns a MariaDB connection string for the configured non-root user.
+    ///
+    /// Requires labels set by `MariaDBContainerRequest.toContainerRequest()`.
+    public func mariadbConnectionString(parameters: [String: String] = [:]) async throws -> String {
+        guard let database = request.labels["testcontainers.mariadb.database"] else {
+            throw TestContainersError.invalidInput("Missing MariaDB database label")
+        }
+        guard let username = request.labels["testcontainers.mariadb.username"],
+              let password = request.labels["testcontainers.mariadb.password"] else {
+            throw TestContainersError.invalidInput(
+                "No non-root MariaDB user configured. Use mariadbRootConnectionString() or configure with withUsername()"
+            )
+        }
+
+        let containerPort = Int(request.labels["testcontainers.mariadb.port"] ?? "") ?? 3306
+        let mappedPort = try await hostPort(containerPort)
+        return buildMariaDBLikeConnectionString(
+            username: username,
+            password: password,
+            host: request.host,
+            port: mappedPort,
+            database: database,
+            parameters: parameters
+        )
+    }
+
+    /// Returns a MariaDB connection string for the root user.
+    ///
+    /// Requires labels set by `MariaDBContainerRequest.toContainerRequest()`.
+    public func mariadbRootConnectionString(parameters: [String: String] = [:]) async throws -> String {
+        guard let database = request.labels["testcontainers.mariadb.database"] else {
+            throw TestContainersError.invalidInput("Missing MariaDB database label")
+        }
+        guard let rootPassword = request.labels["testcontainers.mariadb.rootPassword"] else {
+            throw TestContainersError.invalidInput("Missing MariaDB root password label")
+        }
+
+        let containerPort = Int(request.labels["testcontainers.mariadb.port"] ?? "") ?? 3306
+        let mappedPort = try await hostPort(containerPort)
+        return buildMariaDBLikeConnectionString(
+            username: "root",
+            password: rootPassword,
+            host: request.host,
+            port: mappedPort,
+            database: database,
+            parameters: parameters
+        )
+    }
+
+    fileprivate func buildMariaDBLikeConnectionString(
+        username: String,
+        password: String,
+        host: String,
+        port: Int,
+        database: String,
+        parameters: [String: String]
+    ) -> String {
+        let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlUserAllowed) ?? username
+        let encodedPassword = password.addingPercentEncoding(withAllowedCharacters: .urlPasswordAllowed) ?? password
+        var url = "mysql://\(encodedUsername):\(encodedPassword)@\(host):\(port)/\(database)"
 
         if !parameters.isEmpty {
             let queryString = parameters

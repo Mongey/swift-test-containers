@@ -87,6 +87,18 @@ import Testing
     }
 }
 
+@Test func mysqlContainerRequest_waitingFor_alias() {
+    let request = MySQLContainerRequest()
+        .waitingFor(.tcpPort(3306, timeout: .seconds(45)))
+
+    if case let .tcpPort(port, timeout, _) = request.waitStrategy {
+        #expect(port == 3306)
+        #expect(timeout == .seconds(45))
+    } else {
+        Issue.record("Expected tcpPort wait strategy")
+    }
+}
+
 @Test func mysqlContainerRequest_methodChaining() {
     let request = MySQLContainerRequest(image: "mysql:5.7")
         .withDatabase("myapp")
@@ -166,6 +178,64 @@ import Testing
     #expect(containerRequest.ports.contains { $0.containerPort == 3306 })
 }
 
+@Test func mysqlContainerRequest_toContainerRequest_customContainerAndHostPort() {
+    let request = MySQLContainerRequest()
+        .withContainerPort(3307)
+        .withHostPort(13307)
+
+    let containerRequest = request.toContainerRequest()
+
+    #expect(containerRequest.ports.contains {
+        $0.containerPort == 3307 && $0.hostPort == 13307
+    })
+}
+
+@Test func mysqlContainerRequest_toContainerRequest_withInitScripts() {
+    let request = MySQLContainerRequest()
+        .withInitScript("/tmp/01-schema.sql")
+        .withInitScripts(["/tmp/02-data.sql", "/tmp/03-extra.sh"])
+
+    let containerRequest = request.toContainerRequest()
+
+    #expect(containerRequest.bindMounts.contains {
+        $0.hostPath == "/tmp/01-schema.sql" &&
+            $0.containerPath == "/docker-entrypoint-initdb.d/01-schema.sql" &&
+            $0.readOnly
+    })
+    #expect(containerRequest.bindMounts.contains {
+        $0.hostPath == "/tmp/02-data.sql" &&
+            $0.containerPath == "/docker-entrypoint-initdb.d/02-data.sql" &&
+            $0.readOnly
+    })
+    #expect(containerRequest.bindMounts.contains {
+        $0.hostPath == "/tmp/03-extra.sh" &&
+            $0.containerPath == "/docker-entrypoint-initdb.d/03-extra.sh" &&
+            $0.readOnly
+    })
+}
+
+@Test func mysqlContainerRequest_toContainerRequest_withConfigFile() {
+    let request = MySQLContainerRequest()
+        .withConfigFile("/tmp/custom.cnf")
+
+    let containerRequest = request.toContainerRequest()
+
+    #expect(containerRequest.bindMounts.contains {
+        $0.hostPath == "/tmp/custom.cnf" &&
+            $0.containerPath == "/etc/mysql/conf.d/custom.cnf" &&
+            $0.readOnly
+    })
+}
+
+@Test func mysqlContainerRequest_asContainerRequest_alias() {
+    let request = MySQLContainerRequest()
+        .withDatabase("mydb")
+        .withContainerPort(3307)
+        .withHostPort(13307)
+
+    #expect(request.asContainerRequest() == request.toContainerRequest())
+}
+
 @Test func mysqlContainerRequest_toContainerRequest_setsHost() {
     let request = MySQLContainerRequest()
         .withHost("localhost")
@@ -241,7 +311,7 @@ import Testing
 @Test func mariadbContainerRequest_defaultValues() {
     let request = MariaDBContainerRequest()
 
-    #expect(request.image == "mariadb:11")
+    #expect(request.image == "mariadb:11.0")
     #expect(request.database == "test")
     #expect(request.rootPassword == "test")
     #expect(request.username == "test")
@@ -316,6 +386,18 @@ import Testing
     if case let .tcpPort(port, timeout, _) = request.waitStrategy {
         #expect(port == 3306)
         #expect(timeout == .seconds(30))
+    } else {
+        Issue.record("Expected tcpPort wait strategy")
+    }
+}
+
+@Test func mariadbContainerRequest_waitingFor_alias() {
+    let request = MariaDBContainerRequest()
+        .waitingFor(.tcpPort(3306, timeout: .seconds(45)))
+
+    if case let .tcpPort(port, timeout, _) = request.waitStrategy {
+        #expect(port == 3306)
+        #expect(timeout == .seconds(45))
     } else {
         Issue.record("Expected tcpPort wait strategy")
     }
@@ -399,6 +481,64 @@ import Testing
     let containerRequest = request.toContainerRequest()
 
     #expect(containerRequest.ports.contains { $0.containerPort == 3306 })
+}
+
+@Test func mariadbContainerRequest_toContainerRequest_customContainerAndHostPort() {
+    let request = MariaDBContainerRequest()
+        .withContainerPort(3307)
+        .withHostPort(13307)
+
+    let containerRequest = request.toContainerRequest()
+
+    #expect(containerRequest.ports.contains {
+        $0.containerPort == 3307 && $0.hostPort == 13307
+    })
+}
+
+@Test func mariadbContainerRequest_toContainerRequest_withInitScripts() {
+    let request = MariaDBContainerRequest()
+        .withInitScript("/tmp/01-schema.sql")
+        .withInitScripts(["/tmp/02-data.sql", "/tmp/03-extra.sh"])
+
+    let containerRequest = request.toContainerRequest()
+
+    #expect(containerRequest.bindMounts.contains {
+        $0.hostPath == "/tmp/01-schema.sql" &&
+            $0.containerPath == "/docker-entrypoint-initdb.d/01-schema.sql" &&
+            $0.readOnly
+    })
+    #expect(containerRequest.bindMounts.contains {
+        $0.hostPath == "/tmp/02-data.sql" &&
+            $0.containerPath == "/docker-entrypoint-initdb.d/02-data.sql" &&
+            $0.readOnly
+    })
+    #expect(containerRequest.bindMounts.contains {
+        $0.hostPath == "/tmp/03-extra.sh" &&
+            $0.containerPath == "/docker-entrypoint-initdb.d/03-extra.sh" &&
+            $0.readOnly
+    })
+}
+
+@Test func mariadbContainerRequest_toContainerRequest_withConfigFile() {
+    let request = MariaDBContainerRequest()
+        .withConfigFile("/tmp/custom.cnf")
+
+    let containerRequest = request.toContainerRequest()
+
+    #expect(containerRequest.bindMounts.contains {
+        $0.hostPath == "/tmp/custom.cnf" &&
+            $0.containerPath == "/etc/mysql/conf.d/custom.cnf" &&
+            $0.readOnly
+    })
+}
+
+@Test func mariadbContainerRequest_asContainerRequest_alias() {
+    let request = MariaDBContainerRequest()
+        .withDatabase("mydb")
+        .withContainerPort(3307)
+        .withHostPort(13307)
+
+    #expect(request.asContainerRequest() == request.toContainerRequest())
 }
 
 @Test func mariadbContainerRequest_toContainerRequest_setsHost() {
@@ -607,6 +747,30 @@ import Testing
     }
 }
 
+@Test func mysqlContainer_scopedMethodHelper() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    try await MySQLContainerRequest().withContainer { mysql in
+        let connectionString = try await mysql.connectionString()
+        #expect(connectionString.hasPrefix("mysql://"))
+    }
+}
+
+@Test func mysqlContainer_underlyingContainerConnectionStringHelpers() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    try await withMySQLContainer(MySQLContainerRequest()) { mysql in
+        let generic = await mysql.underlyingContainer
+        let userURL = try await generic.mysqlConnectionString()
+        let rootURL = try await generic.mysqlRootConnectionString()
+
+        #expect(userURL.hasPrefix("mysql://test:test@"))
+        #expect(rootURL.hasPrefix("mysql://root:test@"))
+    }
+}
+
 // MARK: - MariaDB Integration Tests
 
 @Test func mariadbContainer_startsSuccessfully() async throws {
@@ -740,5 +904,29 @@ import Testing
 
     try await withMariaDBContainer(request) { mariadb in
         #expect(mariadb.username() == "customuser")
+    }
+}
+
+@Test func mariadbContainer_scopedMethodHelper() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    try await MariaDBContainerRequest().withContainer { mariadb in
+        let connectionString = try await mariadb.connectionString()
+        #expect(connectionString.hasPrefix("mysql://"))
+    }
+}
+
+@Test func mariadbContainer_underlyingContainerConnectionStringHelpers() async throws {
+    let optedIn = ProcessInfo.processInfo.environment["TESTCONTAINERS_RUN_DOCKER_TESTS"] == "1"
+    guard optedIn else { return }
+
+    try await withMariaDBContainer(MariaDBContainerRequest()) { mariadb in
+        let generic = await mariadb.underlyingContainer
+        let userURL = try await generic.mariadbConnectionString()
+        let rootURL = try await generic.mariadbRootConnectionString()
+
+        #expect(userURL.hasPrefix("mysql://test:test@"))
+        #expect(rootURL.hasPrefix("mysql://root:test@"))
     }
 }
