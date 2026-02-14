@@ -38,12 +38,16 @@ enum HTTPProbe {
         }
 
         let session: URLSession
+        #if canImport(Darwin)
         if allowInsecureTLS {
             let delegate = InsecureTLSDelegate()
             session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
         } else {
             session = URLSession(configuration: .ephemeral)
         }
+        #else
+        session = URLSession(configuration: .ephemeral)
+        #endif
 
         defer {
             session.invalidateAndCancel()
@@ -77,6 +81,7 @@ enum HTTPProbe {
     }
 }
 
+#if canImport(Darwin)
 /// URLSession delegate that allows insecure TLS connections.
 private final class InsecureTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     func urlSession(
@@ -93,6 +98,7 @@ private final class InsecureTLSDelegate: NSObject, URLSessionDelegate, @unchecke
         }
     }
 }
+#endif
 
 /// Extension to convert Duration to TimeInterval for URLRequest.
 private extension Duration {
