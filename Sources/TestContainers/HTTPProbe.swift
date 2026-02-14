@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// HTTP probe for checking if an HTTP endpoint is ready.
 enum HTTPProbe {

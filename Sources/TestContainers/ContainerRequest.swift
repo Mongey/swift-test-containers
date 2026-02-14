@@ -1513,9 +1513,8 @@ public struct ContainerRequest: Sendable, Hashable {
 
         if config.validatePortAllocation {
             for mapping in copy.ports where mapping.hostPort != nil {
-                fputs(
-                    "Warning: fixed host port \(mapping.hostPort!) may conflict in parallel tests.\n",
-                    stderr
+                FileHandle.standardError.write(
+                    Data("Warning: fixed host port \(mapping.hostPort!) may conflict in parallel tests.\n".utf8)
                 )
             }
         }
