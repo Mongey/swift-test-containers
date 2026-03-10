@@ -1,6 +1,8 @@
 # swift-test-containers
 
-A Swift package for running Docker containers in tests, designed to pair nicely with `swift-testing` (`import Testing`).
+A Swift package for running containers in tests, designed to pair nicely with `swift-testing` (`import Testing`).
+
+Supports both **Docker** and **Apple's `container` CLI** (macOS 26+, Apple Silicon) as container runtimes.
 
 ## Quick start
 
@@ -64,10 +66,35 @@ let request = ContainerRequest(image: "alpine:3")
     .withExtraHost(.gateway(hostname: "host.internal"))
 ```
 
+## Container Runtimes
+
+By default, `swift-test-containers` uses the Docker CLI. You can switch to Apple's `container` CLI:
+
+```swift
+// Explicit runtime selection
+let runtime = AppleContainerClient()
+try await withContainer(request, runtime: runtime) { container in ... }
+
+// Or use detectRuntime() with environment variable
+// TESTCONTAINERS_RUNTIME=apple swift test
+let runtime = detectRuntime()
+try await withContainer(request, runtime: runtime) { container in ... }
+```
+
+### Docker (default)
+- Requires Docker installed and available on `PATH`
+- Full feature support
+
+### Apple `container` CLI
+- Requires macOS 26+ on Apple Silicon
+- Install: `brew install container`
+- Start service: `container system start`
+- Runs Linux containers as lightweight VMs
+- Most features supported; `connectToNetwork` after creation is not supported
+
 ## Notes
 
-- This library currently shells out to the `docker` CLI (so Docker must be installed and available on `PATH`).
-- Integration tests are opt-in via `TESTCONTAINERS_RUN_DOCKER_TESTS=1`.
+- Integration tests are opt-in via `TESTCONTAINERS_RUN_DOCKER_TESTS=1` (Docker) or `TESTCONTAINERS_RUN_APPLE_CONTAINER_TESTS=1` (Apple container).
 - Feature status and roadmap: `FEATURES.md`.
 
 ## Platform Selection

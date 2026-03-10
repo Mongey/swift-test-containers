@@ -7,17 +7,20 @@ import Foundation
 ///
 /// For automatic lifecycle management, prefer `withContainer(_:operation:)`.
 ///
+/// - Important: In the runtime abstraction release, the `docker:` parameter was
+///   renamed to `runtime:`.
+///
 /// - Parameters:
 ///   - request: The container configuration
-///   - docker: The Docker client to use
+///   - runtime: The container runtime to use
 /// - Returns: A `Container` in `.created` state
 public func createContainer(
     _ request: ContainerRequest,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     logger: TCLogger = .null
 ) async throws -> Container {
     logger.debug("Checking Docker availability")
-    if !(await docker.isAvailable()) {
+    if !(await runtime.isAvailable()) {
         logger.error("Docker not available")
         throw TestContainersError.dockerNotAvailable(
             "`docker` CLI not found or Docker engine not running."
@@ -27,24 +30,24 @@ public func createContainer(
     // Build image from Dockerfile if specified
     if let dockerfileConfig = request.imageFromDockerfile {
         let tag = request.image
-        _ = try await docker.buildImage(dockerfileConfig, tag: tag)
+        _ = try await runtime.buildImage(dockerfileConfig, tag: tag)
     }
 
     // Handle image pull policy and create container
-    let id = try await docker.createContainer(request)
-    return Container(id: id, request: request, docker: docker, state: .created, logger: logger)
+    let id = try await runtime.createContainer(request)
+    return Container(id: id, request: request, runtime: runtime, state: .created, logger: logger)
 }
 
 public func withContainer<T>(
     _ request: ContainerRequest,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     logger: TCLogger = .null,
     testName: String? = nil,
     operation: @Sendable (Container) async throws -> T
 ) async throws -> T {
     try await withContainer(
         request,
-        docker: docker,
+        runtime: runtime,
         reuseConfig: ReuseConfig.fromEnvironment(),
         logger: logger,
         testName: testName,
@@ -54,14 +57,14 @@ public func withContainer<T>(
 
 func withContainer<T>(
     _ request: ContainerRequest,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     reuseConfig: ReuseConfig,
     logger: TCLogger = .null,
     testName: String? = nil,
     operation: @Sendable (Container) async throws -> T
 ) async throws -> T {
     logger.debug("Checking Docker availability")
-    if !(await docker.isAvailable()) {
+    if !(await runtime.isAvailable()) {
         logger.error("Docker not available")
         throw TestContainersError.dockerNotAvailable("`docker` CLI not found or Docker engine not running.")
     }
@@ -72,19 +75,19 @@ func withContainer<T>(
     let builtImageTag: String?
     if let dockerfileConfig = request.imageFromDockerfile {
         let tag = request.image  // Use the auto-generated tag from request
-        _ = try await docker.buildImage(dockerfileConfig, tag: tag)
+        _ = try await runtime.buildImage(dockerfileConfig, tag: tag)
         builtImageTag = tag
     } else {
         builtImageTag = nil
     }
 
     // PreStart hooks - run before container creation
-    let preStartContext = LifecycleContext(container: nil, request: request, docker: docker)
+    let preStartContext = LifecycleContext(container: nil, request: request, runtime: runtime)
     do {
         try await executeLifecycleHooks(request.preStartHooks, context: preStartContext, phase: .preStart)
     } catch {
         // PreStart hook failed - clean up built image if any
-        await cleanupBuiltImage(tag: builtImageTag, docker: docker)
+        await cleanupBuiltImage(tag: builtImageTag, runtime: runtime)
         throw error
     }
 
@@ -92,24 +95,24 @@ func withContainer<T>(
     do {
         startup = try await retryableContainerStartup(
             request,
-            docker: docker,
+            runtime: runtime,
             reuseEnabled: reuseEnabledForRequest,
             logger: logger
         )
     } catch {
         // PreStart succeeded but container creation failed - clean up built image
-        await cleanupBuiltImage(tag: builtImageTag, docker: docker)
+        await cleanupBuiltImage(tag: builtImageTag, runtime: runtime)
         throw error
     }
 
     // PostStart hooks - run after container is ready
-    let postStartContext = LifecycleContext(container: startup.container, request: request, docker: docker)
+    let postStartContext = LifecycleContext(container: startup.container, request: request, runtime: runtime)
     do {
         try await executeLifecycleHooks(request.postStartHooks, context: postStartContext, phase: .postStart)
     } catch {
         // PostStart hook failed - cleanup container and run terminate hooks
-        try? await terminateWithHooks(container: startup.container, request: request, docker: docker)
-        await cleanupBuiltImage(tag: builtImageTag, docker: docker)
+        try? await terminateWithHooks(container: startup.container, request: request, runtime: runtime)
+        await cleanupBuiltImage(tag: builtImageTag, runtime: runtime)
         throw error
     }
 
@@ -126,9 +129,9 @@ func withContainer<T>(
                 error: nil
             )
             if startup.shouldTerminateOnCompletion {
-                try await terminateWithHooks(container: startup.container, request: request, docker: docker)
+                try await terminateWithHooks(container: startup.container, request: request, runtime: runtime)
             }
-            await cleanupBuiltImage(tag: builtImageTag, docker: docker)
+            await cleanupBuiltImage(tag: builtImageTag, runtime: runtime)
             return result
         } catch {
             // Collect artifacts on failure
@@ -138,9 +141,9 @@ func withContainer<T>(
                 error: error
             )
             if startup.shouldTerminateOnCompletion {
-                try? await terminateWithHooks(container: startup.container, request: request, docker: docker)
+                try? await terminateWithHooks(container: startup.container, request: request, runtime: runtime)
             }
-            await cleanupBuiltImage(tag: builtImageTag, docker: docker)
+            await cleanupBuiltImage(tag: builtImageTag, runtime: runtime)
             throw error
         }
     } onCancel: {
@@ -152,17 +155,17 @@ func withContainer<T>(
                 error: CancellationError()
             )
             if startup.shouldTerminateOnCompletion {
-                try? await terminateWithHooks(container: startup.container, request: request, docker: docker)
+                try? await terminateWithHooks(container: startup.container, request: request, runtime: runtime)
             }
-            await cleanupBuiltImage(tag: builtImageTag, docker: docker)
+            await cleanupBuiltImage(tag: builtImageTag, runtime: runtime)
         }
     }
 }
 
 /// Cleans up a built image if one was created.
-private func cleanupBuiltImage(tag: String?, docker: DockerClient) async {
+private func cleanupBuiltImage(tag: String?, runtime: any ContainerRuntime) async {
     if let tag = tag {
-        try? await docker.removeImage(tag)
+        try? await runtime.removeImage(tag)
     }
 }
 
@@ -171,9 +174,9 @@ private func cleanupBuiltImage(tag: String?, docker: DockerClient) async {
 private func terminateWithHooks(
     container: Container,
     request: ContainerRequest,
-    docker: DockerClient
+    runtime: any ContainerRuntime
 ) async throws {
-    let context = LifecycleContext(container: container, request: request, docker: docker)
+    let context = LifecycleContext(container: container, request: request, runtime: runtime)
 
     // PreTerminate hooks - errors are logged but don't prevent termination
     do {
@@ -206,19 +209,19 @@ private struct ContainerStartupResult {
 ///
 /// - Parameters:
 ///   - request: The container request configuration
-///   - docker: The Docker client to use
+///   - runtime: The container runtime to use
 ///   - reuseEnabled: Whether container reuse is enabled for this request
 /// - Returns: A running, ready container startup result
 /// - Throws: `TestContainersError.startupRetriesExhausted` if all attempts fail
 private func retryableContainerStartup(
     _ request: ContainerRequest,
-    docker: DockerClient,
+    runtime: any ContainerRuntime,
     reuseEnabled: Bool,
     logger: TCLogger = .null
 ) async throws -> ContainerStartupResult {
     guard let policy = request.retryPolicy else {
         // No retry policy - single attempt
-        return try await startContainer(request, docker: docker, reuseEnabled: reuseEnabled, logger: logger)
+        return try await startContainer(request, runtime: runtime, reuseEnabled: reuseEnabled, logger: logger)
     }
 
     var lastError: Error?
@@ -231,7 +234,7 @@ private func retryableContainerStartup(
                 try await Task.sleep(for: delay)
             }
 
-            return try await startContainer(request, docker: docker, reuseEnabled: reuseEnabled, logger: logger)
+            return try await startContainer(request, runtime: runtime, reuseEnabled: reuseEnabled, logger: logger)
 
         } catch {
             lastError = error
@@ -259,13 +262,13 @@ private func retryableContainerStartup(
 /// Cleans up the container on failure.
 private func startContainer(
     _ request: ContainerRequest,
-    docker: DockerClient,
+    runtime: any ContainerRuntime,
     reuseEnabled: Bool,
     logger: TCLogger = .null
 ) async throws -> ContainerStartupResult {
     guard reuseEnabled else {
-        let id = try await docker.runContainer(request)
-        let container = Container(id: id, request: request, docker: docker, logger: logger)
+        let id = try await runtime.runContainer(request)
+        let container = Container(id: id, request: request, runtime: runtime, logger: logger)
         await setupLogConsumers(container: container, request: request)
 
         do {
@@ -281,8 +284,8 @@ private func startContainer(
     let hash = ReuseFingerprint.hash(for: request)
     let reusableRequest = request.withReuseLabels(hash: hash)
 
-    if let candidate = try await docker.findReusableContainer(hash: hash) {
-        let reusedContainer = Container(id: candidate.id, request: reusableRequest, docker: docker, logger: logger)
+    if let candidate = try await runtime.findReusableContainer(hash: hash) {
+        let reusedContainer = Container(id: candidate.id, request: reusableRequest, runtime: runtime, logger: logger)
         await setupLogConsumers(container: reusedContainer, request: reusableRequest)
 
         do {
@@ -294,8 +297,8 @@ private func startContainer(
         }
     }
 
-    let id = try await docker.runContainer(reusableRequest)
-    let container = Container(id: id, request: reusableRequest, docker: docker, logger: logger)
+    let id = try await runtime.runContainer(reusableRequest)
+    let container = Container(id: id, request: reusableRequest, runtime: runtime, logger: logger)
     await setupLogConsumers(container: container, request: reusableRequest)
 
     do {

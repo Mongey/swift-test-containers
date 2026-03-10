@@ -18,7 +18,7 @@ import Testing
     let container = Container(
         id: "abcdef1234567890abcdef1234567890",
         request: request,
-        docker: DockerClient()
+        runtime: DockerClient()
     )
 
     let hostname = await container.internalHostname()
@@ -35,7 +35,7 @@ import Testing
     let container = Container(
         id: "abcdef1234567890abcdef1234567890",
         request: noNameRequest,
-        docker: DockerClient()
+        runtime: DockerClient()
     )
 
     let hostname = await container.internalHostname()
@@ -51,7 +51,7 @@ import Testing
     let container = Container(
         id: "abc123",
         request: request,
-        docker: DockerClient()
+        runtime: DockerClient()
     )
 
     let hostname = await container.internalHostname()

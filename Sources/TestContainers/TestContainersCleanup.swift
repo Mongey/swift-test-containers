@@ -18,7 +18,7 @@ import Foundation
 /// print("Removed \(result.containersRemoved) containers")
 /// ```
 public actor TestContainersCleanup {
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
     private let config: TestContainersCleanupConfig
 
     /// The current cleanup configuration.
@@ -33,10 +33,10 @@ public actor TestContainersCleanup {
     ///   - docker: Docker client to use (defaults to new client)
     public init(
         config: TestContainersCleanupConfig = TestContainersCleanupConfig(),
-        docker: DockerClient = DockerClient()
+        runtime: any ContainerRuntime = DockerClient()
     ) {
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Perform cleanup of orphaned containers using the configured age threshold.
@@ -54,7 +54,7 @@ public actor TestContainersCleanup {
     /// - Throws: `CleanupError.dockerUnavailable` if Docker is not running
     public func cleanup(olderThan ageSeconds: TimeInterval) async throws -> CleanupResult {
         // Check Docker availability
-        guard await docker.isAvailable() else {
+        guard await runtime.isAvailable() else {
             throw CleanupError.dockerUnavailable
         }
 
@@ -64,7 +64,7 @@ public actor TestContainersCleanup {
         // List containers matching labels
         let containers: [ContainerListItem]
         do {
-            containers = try await docker.listContainers(labels: labelFilters)
+            containers = try await runtime.listContainers(labels: labelFilters)
         } catch {
             throw CleanupError.dockerUnavailable
         }
@@ -114,7 +114,7 @@ public actor TestContainersCleanup {
         }
 
         // Remove containers in parallel
-        let removalResults = await docker.removeContainers(ids: containersToRemove)
+        let removalResults = await runtime.removeContainers(ids: containersToRemove)
 
         // Update container infos with results
         var removedCount = 0
@@ -181,7 +181,7 @@ public actor TestContainersCleanup {
     /// - Throws: `CleanupError.dockerUnavailable` if Docker is not running
     public func cleanup(sessionId: String) async throws -> CleanupResult {
         let sessionConfig = config.withCustomLabelFilter("testcontainers.swift.session.id", sessionId)
-        let sessionCleanup = TestContainersCleanup(config: sessionConfig, docker: docker)
+        let sessionCleanup = TestContainersCleanup(config: sessionConfig, runtime: runtime)
         return try await sessionCleanup.cleanup()
     }
 
@@ -194,7 +194,7 @@ public actor TestContainersCleanup {
     /// - Throws: `CleanupError.dockerUnavailable` if Docker is not running
     public func listOrphanedContainers() async throws -> [CleanupResult.CleanupContainerInfo] {
         let dryRunConfig = config.withDryRun(true)
-        let dryRunCleanup = TestContainersCleanup(config: dryRunConfig, docker: docker)
+        let dryRunCleanup = TestContainersCleanup(config: dryRunConfig, runtime: runtime)
         let result = try await dryRunCleanup.cleanup()
         return result.containers
     }
@@ -204,7 +204,7 @@ public actor TestContainersCleanup {
     /// - Parameter id: The container ID to remove
     /// - Throws: `CleanupError.containerRemovalFailed` if removal fails
     public func removeContainer(_ id: String) async throws {
-        let results = await docker.removeContainers(ids: [id])
+        let results = await runtime.removeContainers(ids: [id])
         if let error = results[id], error != nil {
             throw CleanupError.containerRemovalFailed(id: id, reason: error!.localizedDescription)
         }

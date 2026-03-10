@@ -25,7 +25,7 @@ public actor RunningStack {
     private let network: StackNetworkInfo?
     private let volumes: [StackVolumeInfo]
     private let shutdownOrder: [String]
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
     private var terminated = false
 
     init(
@@ -34,14 +34,14 @@ public actor RunningStack {
         network: StackNetworkInfo?,
         volumes: [StackVolumeInfo],
         shutdownOrder: [String],
-        docker: DockerClient
+        runtime: any ContainerRuntime
     ) {
         self.stackId = stackId
         self.containers = containers
         self.network = network
         self.volumes = volumes
         self.shutdownOrder = shutdownOrder
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns a container by stack name.
@@ -96,7 +96,7 @@ public actor RunningStack {
 
         if let network, network.removeOnTermination {
             do {
-                try await docker.removeNetwork(id: network.id)
+                try await runtime.removeNetwork(id: network.id)
             } catch {
                 if firstError == nil {
                     firstError = error
@@ -106,7 +106,7 @@ public actor RunningStack {
 
         for volume in volumes where volume.removeOnTermination {
             do {
-                try await docker.removeVolume(name: volume.name)
+                try await runtime.removeVolume(name: volume.name)
             } catch {
                 if firstError == nil {
                     firstError = error

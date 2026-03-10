@@ -245,12 +245,12 @@ public struct LocalStackContainer: Sendable, Hashable {
 public struct RunningLocalStackContainer: Sendable {
     private let container: Container
     private let config: LocalStackContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: LocalStackContainer, docker: DockerClient) {
+    internal init(container: Container, config: LocalStackContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the base LocalStack endpoint URL (e.g., `http://127.0.0.1:49152`).
@@ -291,7 +291,7 @@ public struct RunningLocalStackContainer: Sendable {
     /// - Parameter command: Command and arguments to execute
     /// - Returns: ExecResult with exit code, stdout, and stderr
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic Container for advanced operations.
@@ -322,15 +322,15 @@ public struct RunningLocalStackContainer: Sendable {
 /// ```
 public func withLocalStackContainer<T>(
     _ config: LocalStackContainer = LocalStackContainer(),
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningLocalStackContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = config.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let localStackContainer = RunningLocalStackContainer(
             container: container,
             config: config,
-            docker: docker
+            runtime: runtime
         )
         return try await operation(localStackContainer)
     }

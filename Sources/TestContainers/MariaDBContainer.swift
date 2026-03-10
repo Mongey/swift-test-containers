@@ -285,10 +285,10 @@ public struct MariaDBContainerRequest: Sendable, Hashable {
     ///   - operation: Operation to execute with running MariaDB
     /// - Returns: Operation return value
     public func withContainer<T>(
-        docker: DockerClient = DockerClient(),
+        runtime: any ContainerRuntime = DockerClient(),
         operation: @Sendable (MariaDBContainer) async throws -> T
     ) async throws -> T {
-        try await withMariaDBContainer(self, docker: docker, operation: operation)
+        try await withMariaDBContainer(self, runtime: runtime, operation: operation)
     }
 }
 
@@ -512,11 +512,11 @@ extension Container {
 /// ```
 public func withMariaDBContainer<T>(
     _ request: MariaDBContainerRequest,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (MariaDBContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = request.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let mariadbContainer = MariaDBContainer(container: container, config: request)
         return try await operation(mariadbContainer)
     }

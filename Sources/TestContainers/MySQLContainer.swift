@@ -277,10 +277,10 @@ public struct MySQLContainerRequest: Sendable, Hashable {
     ///   - operation: Operation to execute with running MySQL
     /// - Returns: Operation return value
     public func withContainer<T>(
-        docker: DockerClient = DockerClient(),
+        runtime: any ContainerRuntime = DockerClient(),
         operation: @Sendable (MySQLContainer) async throws -> T
     ) async throws -> T {
-        try await withMySQLContainer(self, docker: docker, operation: operation)
+        try await withMySQLContainer(self, runtime: runtime, operation: operation)
     }
 }
 
@@ -501,11 +501,11 @@ extension Container {
 /// ```
 public func withMySQLContainer<T>(
     _ request: MySQLContainerRequest,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (MySQLContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = request.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let mysqlContainer = MySQLContainer(container: container, config: request)
         return try await operation(mysqlContainer)
     }

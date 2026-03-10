@@ -206,12 +206,12 @@ private extension CharacterSet {
 public struct RunningMongoDBContainer: Sendable {
     private let container: Container
     private let config: MongoDBContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: MongoDBContainer, docker: DockerClient) {
+    internal init(container: Container, config: MongoDBContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the MongoDB connection string.
@@ -244,7 +244,7 @@ public struct RunningMongoDBContainer: Sendable {
 
     /// Executes a command inside the container.
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic Container for advanced operations.
@@ -265,15 +265,15 @@ public struct RunningMongoDBContainer: Sendable {
 /// - Returns: Result of the operation
 public func withMongoDBContainer<T>(
     _ config: MongoDBContainer,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningMongoDBContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = config.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let mongoContainer = RunningMongoDBContainer(
             container: container,
             config: config,
-            docker: docker
+            runtime: runtime
         )
 
         // Initialize replica set if configured
@@ -284,7 +284,7 @@ public func withMongoDBContainer<T>(
                 members: [{ _id: 0, host: 'localhost:27017' }]
             })
             """
-            _ = try await docker.exec(
+            _ = try await runtime.exec(
                 id: container.id,
                 command: ["mongosh", "--quiet", "--eval", initScript],
                 options: ExecOptions()
@@ -296,7 +296,7 @@ public func withMongoDBContainer<T>(
                 pollInterval: .milliseconds(500),
                 description: "replica set '\(replicaSet.name)' to become ready"
             ) {
-                let result = try await docker.exec(
+                let result = try await runtime.exec(
                     id: container.id,
                     command: ["mongosh", "--quiet", "--eval", "rs.status().ok"],
                     options: ExecOptions()

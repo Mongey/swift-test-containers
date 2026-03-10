@@ -174,14 +174,14 @@ import Testing
 
 @Test func runningStack_containerLookup_returnsContainer() async throws {
     let request = ContainerRequest(image: "postgres:15")
-    let dbContainer = Container(id: "stack-db-id", request: request, docker: DockerClient())
+    let dbContainer = Container(id: "stack-db-id", request: request, runtime: DockerClient())
     let running = RunningStack(
         stackId: "stack-id",
         containers: ["db": dbContainer],
         network: nil,
         volumes: [],
         shutdownOrder: ["db"],
-        docker: DockerClient()
+        runtime: DockerClient()
     )
 
     let fetched = try await running.container("db")
@@ -190,7 +190,7 @@ import Testing
 
 @Test func runningStack_volumeNames_returnsStackVolumes() async throws {
     let request = ContainerRequest(image: "postgres:15")
-    let dbContainer = Container(id: "stack-db-id", request: request, docker: DockerClient())
+    let dbContainer = Container(id: "stack-db-id", request: request, runtime: DockerClient())
     let running = RunningStack(
         stackId: "stack-id",
         containers: ["db": dbContainer],
@@ -200,7 +200,7 @@ import Testing
             StackVolumeInfo(name: "cache-vol", removeOnTermination: true),
         ],
         shutdownOrder: ["db"],
-        docker: DockerClient()
+        runtime: DockerClient()
     )
 
     let names = await running.volumeNames()
@@ -209,14 +209,14 @@ import Testing
 
 @Test func runningStack_missingContainer_throwsContainerNotFound() async {
     let request = ContainerRequest(image: "postgres:15")
-    let dbContainer = Container(id: "stack-db-id", request: request, docker: DockerClient())
+    let dbContainer = Container(id: "stack-db-id", request: request, runtime: DockerClient())
     let running = RunningStack(
         stackId: "stack-id",
         containers: ["db": dbContainer],
         network: nil,
         volumes: [],
         shutdownOrder: ["db"],
-        docker: DockerClient()
+        runtime: DockerClient()
     )
 
     do {

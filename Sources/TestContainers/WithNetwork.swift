@@ -1,19 +1,23 @@
 import Foundation
 
+/// Create a scoped network with automatic cleanup.
+///
+/// - Important: In the runtime abstraction release, the `docker:` parameter was
+///   renamed to `runtime:`.
 public func withNetwork<T>(
     _ request: NetworkRequest = NetworkRequest(),
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     logger: TCLogger = .null,
     operation: @Sendable (Network) async throws -> T
 ) async throws -> T {
-    if !(await docker.isAvailable()) {
+    if !(await runtime.isAvailable()) {
         throw TestContainersError.dockerNotAvailable(
             "`docker` CLI not found or Docker engine not running."
         )
     }
 
-    let (id, name) = try await docker.createNetwork(request)
-    let network = Network(id: id, name: name, request: request, docker: docker)
+    let (id, name) = try await runtime.createNetwork(request)
+    let network = Network(id: id, name: name, request: request, runtime: runtime)
 
     return try await withTaskCancellationHandler {
         do {

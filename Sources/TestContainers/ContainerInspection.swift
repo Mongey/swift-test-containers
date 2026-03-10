@@ -9,6 +9,16 @@ public struct ContainerInspection: Sendable, Equatable {
     public let config: ContainerConfig
     public let networkSettings: NetworkSettings
 
+    /// Internal memberwise initializer for constructing from non-Docker formats.
+    init(id: String, created: Date, name: String, state: ContainerState, config: ContainerConfig, networkSettings: NetworkSettings) {
+        self.id = id
+        self.created = created
+        self.name = name
+        self.state = state
+        self.config = config
+        self.networkSettings = networkSettings
+    }
+
     /// Parse container inspection from Docker CLI JSON output (array format).
     ///
     /// - Parameter json: JSON string from `docker inspect` command
@@ -68,6 +78,22 @@ public struct ContainerState: Sendable, Equatable {
         case exited
         case dead
     }
+
+    /// Internal memberwise initializer for constructing from non-Docker formats.
+    init(status: Status, running: Bool, paused: Bool, restarting: Bool, oomKilled: Bool, dead: Bool, pid: Int, exitCode: Int, error: String, startedAt: Date?, finishedAt: Date?, health: HealthStatus?) {
+        self.status = status
+        self.running = running
+        self.paused = paused
+        self.restarting = restarting
+        self.oomKilled = oomKilled
+        self.dead = dead
+        self.pid = pid
+        self.exitCode = exitCode
+        self.error = error
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.health = health
+    }
 }
 
 /// Container health check status.
@@ -102,6 +128,18 @@ public struct ContainerConfig: Sendable, Equatable {
     public let workingDir: String
     public let entrypoint: [String]
     public let labels: [String: String]
+
+    /// Internal memberwise initializer for constructing from non-Docker formats.
+    init(hostname: String, user: String, env: [String], cmd: [String], image: String, workingDir: String, entrypoint: [String], labels: [String: String]) {
+        self.hostname = hostname
+        self.user = user
+        self.env = env
+        self.cmd = cmd
+        self.image = image
+        self.workingDir = workingDir
+        self.entrypoint = entrypoint
+        self.labels = labels
+    }
 }
 
 /// Network configuration and IP addresses.
@@ -113,6 +151,17 @@ public struct NetworkSettings: Sendable, Equatable {
     public let gateway: String
     public let macAddress: String
     public let networks: [String: NetworkAttachment]
+
+    /// Internal memberwise initializer for constructing from non-Docker formats.
+    init(bridge: String, sandboxID: String, ports: [PortBinding], ipAddress: String, gateway: String, macAddress: String, networks: [String: NetworkAttachment]) {
+        self.bridge = bridge
+        self.sandboxID = sandboxID
+        self.ports = ports
+        self.ipAddress = ipAddress
+        self.gateway = gateway
+        self.macAddress = macAddress
+        self.networks = networks
+    }
 }
 
 /// A port binding from container port to host.
@@ -132,6 +181,17 @@ public struct NetworkAttachment: Sendable, Equatable {
     public let ipPrefixLen: Int
     public let macAddress: String
     public let aliases: [String]
+
+    /// Internal memberwise initializer for constructing from non-Docker formats.
+    init(networkID: String, endpointID: String, gateway: String, ipAddress: String, ipPrefixLen: Int, macAddress: String, aliases: [String]) {
+        self.networkID = networkID
+        self.endpointID = endpointID
+        self.gateway = gateway
+        self.ipAddress = ipAddress
+        self.ipPrefixLen = ipPrefixLen
+        self.macAddress = macAddress
+        self.aliases = aliases
+    }
 }
 
 // MARK: - Codable Conformance

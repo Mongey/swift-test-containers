@@ -300,12 +300,12 @@ public struct NATSContainer: Sendable, Hashable {
 public struct RunningNATSContainer: Sendable {
     private let container: Container
     private let config: NATSContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: NATSContainer, docker: DockerClient) {
+    internal init(container: Container, config: NATSContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the NATS connection string.
@@ -365,7 +365,7 @@ public struct RunningNATSContainer: Sendable {
     /// - Parameter command: Command and arguments to execute
     /// - Returns: ExecResult with exit code, stdout, and stderr
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic Container for advanced operations.
@@ -396,15 +396,15 @@ public struct RunningNATSContainer: Sendable {
 /// ```
 public func withNATSContainer<T>(
     _ config: NATSContainer,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningNATSContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = config.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let natsContainer = RunningNATSContainer(
             container: container,
             config: config,
-            docker: docker
+            runtime: runtime
         )
         return try await operation(natsContainer)
     }

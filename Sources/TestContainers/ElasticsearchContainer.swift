@@ -243,12 +243,12 @@ public struct ElasticsearchSettings: Sendable, Hashable {
 public struct RunningElasticsearchContainer: Sendable {
     private let container: Container
     private let config: ElasticsearchContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: ElasticsearchContainer, docker: DockerClient) {
+    internal init(container: Container, config: ElasticsearchContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the HTTP(S) address for Elasticsearch.
@@ -320,7 +320,7 @@ public struct RunningElasticsearchContainer: Sendable {
 
     /// Executes a command inside the container.
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic `Container` for advanced operations.
@@ -333,12 +333,12 @@ public struct RunningElasticsearchContainer: Sendable {
 /// The container is automatically cleaned up when the operation completes.
 public func withElasticsearchContainer<T>(
     _ config: ElasticsearchContainer,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningElasticsearchContainer) async throws -> T
 ) async throws -> T {
     let request = config.toContainerRequest()
-    return try await withContainer(request, docker: docker) { container in
-        let elasticsearch = RunningElasticsearchContainer(container: container, config: config, docker: docker)
+    return try await withContainer(request, runtime: runtime) { container in
+        let elasticsearch = RunningElasticsearchContainer(container: container, config: config, runtime: runtime)
         return try await operation(elasticsearch)
     }
 }

@@ -4,7 +4,7 @@ public actor Container {
     public nonisolated let id: String
     public nonisolated let request: ContainerRequest
 
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
     private let logger: TCLogger
     private var state: ContainerState
     private var logConsumers: [any LogConsumer] = []
@@ -31,10 +31,10 @@ public actor Container {
         }
     }
 
-    init(id: String, request: ContainerRequest, docker: DockerClient, state: ContainerState = .running, logger: TCLogger = .null) {
+    init(id: String, request: ContainerRequest, runtime: any ContainerRuntime, state: ContainerState = .running, logger: TCLogger = .null) {
         self.id = id
         self.request = request
-        self.docker = docker
+        self.runtime = runtime
         self.state = state
         self.logger = logger
     }
@@ -62,7 +62,7 @@ public actor Container {
             logger.info("Starting container", metadata: ["containerId": String(id.prefix(12)), "image": request.image])
             state = .starting
             do {
-                try await docker.startContainer(id: id)
+                try await runtime.startContainer(id: id)
                 try await waitUntilReady()
                 state = .running
                 logger.notice("Container is running", metadata: ["containerId": String(id.prefix(12))])
@@ -109,7 +109,7 @@ public actor Container {
         case .running, .starting:
             state = .stopping
             do {
-                try await docker.stopContainer(id: id, timeout: timeout)
+                try await runtime.stopContainer(id: id, timeout: timeout)
                 state = .stopped
             } catch {
                 state = .stopped
@@ -158,7 +158,7 @@ public actor Container {
     }
 
     public func hostPort(_ containerPort: Int) async throws -> Int {
-        try await docker.port(id: id, containerPort: containerPort)
+        try await runtime.port(id: id, containerPort: containerPort)
     }
 
     public func host() -> String {
@@ -171,7 +171,7 @@ public actor Container {
     }
 
     public func logs() async throws -> String {
-        try await docker.logs(id: id)
+        try await runtime.logs(id: id)
     }
 
     /// Stream container logs in real-time.
@@ -206,7 +206,7 @@ public actor Container {
     /// }
     /// ```
     public nonisolated func streamLogs(options: LogStreamOptions = .default) -> AsyncThrowingStream<LogEntry, Error> {
-        docker.streamLogs(id: id, options: options)
+        runtime.streamLogs(id: id, options: options)
     }
 
     /// Inspect the container to retrieve detailed runtime information.
@@ -224,7 +224,7 @@ public actor Container {
     /// print("IP: \(inspection.networkSettings.ipAddress)")
     /// ```
     public func inspect() async throws -> ContainerInspection {
-        try await docker.inspect(id: id)
+        try await runtime.inspect(id: id)
     }
 
     // MARK: - Log Consumers
@@ -273,10 +273,10 @@ public actor Container {
 
         // Stop gracefully if running
         if state == .running || state == .starting {
-            try? await docker.stopContainer(id: id, timeout: .seconds(5))
+            try? await runtime.stopContainer(id: id, timeout: .seconds(5))
         }
 
-        try await docker.removeContainer(id: id)
+        try await runtime.removeContainer(id: id)
         state = .terminated
         logger.info("Container terminated", metadata: ["containerId": String(id.prefix(12))])
     }
@@ -301,7 +301,7 @@ public actor Container {
         _ command: [String],
         options: ExecOptions = ExecOptions()
     ) async throws -> ExecResult {
-        try await docker.exec(id: id, command: command, options: options)
+        try await runtime.exec(id: id, command: command, options: options)
     }
 
     /// Execute a command in the running container with a custom user.
@@ -362,7 +362,7 @@ public actor Container {
     /// try await container.copyFileToContainer(from: "/tmp/config.json", to: "/app/config.json")
     /// ```
     public func copyFileToContainer(from hostPath: String, to containerPath: String) async throws {
-        try await docker.copyToContainer(id: id, sourcePath: hostPath, destinationPath: containerPath)
+        try await runtime.copyToContainer(id: id, sourcePath: hostPath, destinationPath: containerPath)
     }
 
     /// Copy a directory from the host filesystem into the container.
@@ -381,7 +381,7 @@ public actor Container {
     /// try await container.copyDirectoryToContainer(from: "/tmp/fixtures", to: "/app/data")
     /// ```
     public func copyDirectoryToContainer(from hostPath: String, to containerPath: String) async throws {
-        try await docker.copyToContainer(id: id, sourcePath: hostPath, destinationPath: containerPath)
+        try await runtime.copyToContainer(id: id, sourcePath: hostPath, destinationPath: containerPath)
     }
 
     /// Copy data directly into a file in the container.
@@ -399,7 +399,7 @@ public actor Container {
     /// try await container.copyDataToContainer(imageData, to: "/app/image.png")
     /// ```
     public func copyDataToContainer(_ data: Data, to containerPath: String) async throws {
-        try await docker.copyDataToContainer(id: id, data: data, destinationPath: containerPath)
+        try await runtime.copyDataToContainer(id: id, data: data, destinationPath: containerPath)
     }
 
     /// Copy string content into a file in the container.
@@ -453,7 +453,7 @@ public actor Container {
         to hostPath: String,
         preservePermissions: Bool = true
     ) async throws -> URL {
-        try await docker.copyFromContainer(
+        try await runtime.copyFromContainer(
             id: id,
             containerPath: containerPath,
             hostPath: hostPath,
@@ -495,7 +495,7 @@ public actor Container {
             )
         }
 
-        try await docker.copyFromContainer(
+        try await runtime.copyFromContainer(
             id: id,
             containerPath: containerPath,
             hostPath: hostPath,
@@ -526,7 +526,7 @@ public actor Container {
             try? FileManager.default.removeItem(at: tempFile)
         }
 
-        try await docker.copyFromContainer(
+        try await runtime.copyFromContainer(
             id: id,
             containerPath: containerPath,
             hostPath: tempFile.path,
@@ -545,7 +545,7 @@ public actor Container {
     /// - Returns: The container's internal IP address (e.g., "172.17.0.2")
     /// - Throws: `TestContainersError` if unable to inspect the container or no networks found
     public func internalIP() async throws -> String {
-        let inspection = try await docker.inspect(id: id)
+        let inspection = try await runtime.inspect(id: id)
         guard let firstNetwork = inspection.networkSettings.networks.values.first else {
             throw TestContainersError.unexpectedDockerOutput(
                 "No networks found for container \(id)"
@@ -560,7 +560,7 @@ public actor Container {
     /// - Returns: The container's IP address within the specified network
     /// - Throws: `TestContainersError.networkNotFound` if the network is not found
     public func internalIP(forNetwork networkName: String) async throws -> String {
-        let inspection = try await docker.inspect(id: id)
+        let inspection = try await runtime.inspect(id: id)
         guard let network = inspection.networkSettings.networks[networkName] else {
             throw TestContainersError.networkNotFound(networkName, id: id)
         }
@@ -621,11 +621,11 @@ public actor Container {
         var containerState: ContainerStateDiagnostics?
 
         if config.captureLogsOnFailure && config.logTailLines > 0 {
-            recentLogs = try? await docker.logsTail(id: id, lines: config.logTailLines)
+            recentLogs = try? await runtime.logsTail(id: id, lines: config.logTailLines)
         }
 
         if config.captureStateOnFailure {
-            if let inspection = try? await docker.inspect(id: id) {
+            if let inspection = try? await runtime.inspect(id: id) {
                 containerState = ContainerStateDiagnostics(
                     status: inspection.state.status.rawValue,
                     running: inspection.state.running,
@@ -659,13 +659,13 @@ public actor Container {
                     pollInterval: pollInterval,
                     description: desc,
                     onTimeout: { [self] in await collectDiagnostics(description: desc) }
-                ) { [docker, id] in
-                    let text = try await docker.logs(id: id)
+                ) { [runtime, id] in
+                    let text = try await runtime.logs(id: id)
                     return text.contains(needle)
                 }
             } else {
-                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [docker, id] in
-                    let text = try await docker.logs(id: id)
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [runtime, id] in
+                    let text = try await runtime.logs(id: id)
                     return text.contains(needle)
                 }
             }
@@ -684,20 +684,20 @@ public actor Container {
                     pollInterval: pollInterval,
                     description: desc,
                     onTimeout: { [self] in await collectDiagnostics(description: desc) }
-                ) { [docker, id, pattern] in
-                    let text = try await docker.logs(id: id)
+                ) { [runtime, id, pattern] in
+                    let text = try await runtime.logs(id: id)
                     let regex = try! Regex(pattern)
                     return text.contains(regex)
                 }
             } else {
-                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [docker, id, pattern] in
-                    let text = try await docker.logs(id: id)
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [runtime, id, pattern] in
+                    let text = try await runtime.logs(id: id)
                     let regex = try! Regex(pattern)
                     return text.contains(regex)
                 }
             }
         case let .tcpPort(containerPort, timeout, pollInterval):
-            let hostPort = try await docker.port(id: id, containerPort: containerPort)
+            let hostPort = try await runtime.port(id: id, containerPort: containerPort)
             let host = request.host
             let desc = "TCP port \(host):\(hostPort) to accept connections"
             if diagnosticsEnabled {
@@ -715,7 +715,7 @@ public actor Container {
                 }
             }
         case let .http(config):
-            let hostPort = try await docker.port(id: id, containerPort: config.port)
+            let hostPort = try await runtime.port(id: id, containerPort: config.port)
             let host = request.host
             let scheme = config.useTLS ? "https" : "http"
             let url = "\(scheme)://\(host):\(hostPort)\(config.path)"
@@ -762,19 +762,19 @@ public actor Container {
                     pollInterval: pollInterval,
                     description: desc,
                     onTimeout: { [self] in await collectDiagnostics(description: desc) }
-                ) { [docker, id] in
-                    let exitCode = try await docker.exec(id: id, command: command)
+                ) { [runtime, id] in
+                    let exitCode = try await runtime.exec(id: id, command: command)
                     return exitCode == 0
                 }
             } else {
-                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [docker, id] in
-                    let exitCode = try await docker.exec(id: id, command: command)
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [runtime, id] in
+                    let exitCode = try await runtime.exec(id: id, command: command)
                     return exitCode == 0
                 }
             }
         case let .healthCheck(timeout, pollInterval):
             // First check if container has health check configured
-            let initialStatus = try await docker.healthStatus(id: id)
+            let initialStatus = try await runtime.healthStatus(id: id)
             guard initialStatus.hasHealthCheck else {
                 throw TestContainersError.healthCheckNotConfigured(
                     "Container \(id) does not have a HEALTHCHECK configured. " +
@@ -789,13 +789,13 @@ public actor Container {
                     pollInterval: pollInterval,
                     description: desc,
                     onTimeout: { [self] in await collectDiagnostics(description: desc) }
-                ) { [docker, id] in
-                    let status = try await docker.healthStatus(id: id)
+                ) { [runtime, id] in
+                    let status = try await runtime.healthStatus(id: id)
                     return status.status == .healthy
                 }
             } else {
-                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [docker, id] in
-                    let status = try await docker.healthStatus(id: id)
+                try await Waiter.wait(timeout: timeout, pollInterval: pollInterval, description: desc) { [runtime, id] in
+                    let status = try await runtime.healthStatus(id: id)
                     return status.status == .healthy
                 }
             }

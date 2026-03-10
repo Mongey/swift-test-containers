@@ -110,6 +110,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case networkCreationFailed(String)
     /// Docker Engine API returned a non-success HTTP status code.
     case apiError(statusCode: Int, message: String)
+    /// The requested operation is not supported by the current container runtime.
+    case unsupportedByRuntime(String)
 
     public var description: String {
         switch self {
@@ -178,6 +180,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             return "Failed to create stack network: \(message)"
         case let .apiError(statusCode, message):
             return "Docker API error (HTTP \(statusCode)): \(message)"
+        case let .unsupportedByRuntime(message):
+            return "Unsupported by runtime: \(message)"
         }
     }
 }

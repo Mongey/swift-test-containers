@@ -267,12 +267,12 @@ public struct OpenSearchSettings: Sendable, Hashable {
 public struct RunningOpenSearchContainer: Sendable {
     private let container: Container
     private let config: OpenSearchContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: OpenSearchContainer, docker: DockerClient) {
+    internal init(container: Container, config: OpenSearchContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the HTTP address for OpenSearch.
@@ -317,7 +317,7 @@ public struct RunningOpenSearchContainer: Sendable {
 
     /// Executes a command inside the container.
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic `Container` for advanced operations.
@@ -330,12 +330,12 @@ public struct RunningOpenSearchContainer: Sendable {
 /// The container is automatically cleaned up when the operation completes.
 public func withOpenSearchContainer<T>(
     _ config: OpenSearchContainer,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningOpenSearchContainer) async throws -> T
 ) async throws -> T {
     let request = config.toContainerRequest()
-    return try await withContainer(request, docker: docker) { container in
-        let openSearch = RunningOpenSearchContainer(container: container, config: config, docker: docker)
+    return try await withContainer(request, runtime: runtime) { container in
+        let openSearch = RunningOpenSearchContainer(container: container, config: config, runtime: runtime)
         return try await operation(openSearch)
     }
 }

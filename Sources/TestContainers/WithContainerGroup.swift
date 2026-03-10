@@ -11,9 +11,9 @@ public typealias ContainerGroupHandle = RunningStack
 /// This delegates to `withStack` to preserve a single orchestration implementation.
 public func withContainerGroup<T>(
     _ group: ContainerGroup,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     logger: TCLogger = .null,
     operation: @Sendable (ContainerGroupHandle) async throws -> T
 ) async throws -> T {
-    try await withStack(group, docker: docker, logger: logger, operation: operation)
+    try await withStack(group, runtime: runtime, logger: logger, operation: operation)
 }

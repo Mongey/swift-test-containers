@@ -36,7 +36,7 @@ import Testing
 @Test func lifecycleContext_withoutContainer_requireContainerThrows() async {
     let request = ContainerRequest(image: "alpine:3")
     let docker = DockerClient()
-    let context = LifecycleContext(container: nil, request: request, docker: docker)
+    let context = LifecycleContext(container: nil, request: request, runtime: docker)
 
     #expect(throws: TestContainersError.self) {
         _ = try context.requireContainer()
@@ -47,7 +47,7 @@ import Testing
     let request = ContainerRequest(image: "alpine:3")
     let docker = DockerClient()
     // Note: We can't create a real container without Docker, but we can test the context structure
-    let context = LifecycleContext(container: nil, request: request, docker: docker)
+    let context = LifecycleContext(container: nil, request: request, runtime: docker)
 
     #expect(context.request.image == "alpine:3")
 }
@@ -56,7 +56,7 @@ import Testing
     let request = ContainerRequest(image: "postgres:16")
         .withEnvironment(["POSTGRES_PASSWORD": "test"])
     let docker = DockerClient()
-    let context = LifecycleContext(container: nil, request: request, docker: docker)
+    let context = LifecycleContext(container: nil, request: request, runtime: docker)
 
     #expect(context.request.image == "postgres:16")
     #expect(context.request.environment["POSTGRES_PASSWORD"] == "test")
@@ -213,7 +213,7 @@ import Testing
     let hooks: [LifecycleHook] = []
     let request = ContainerRequest(image: "alpine:3")
     let docker = DockerClient()
-    let context = LifecycleContext(container: nil, request: request, docker: docker)
+    let context = LifecycleContext(container: nil, request: request, runtime: docker)
 
     // Should not throw
     try await executeLifecycleHooks(hooks, context: context, phase: .preStart)
@@ -231,7 +231,7 @@ import Testing
 
     let request = ContainerRequest(image: "alpine:3")
     let docker = DockerClient()
-    let context = LifecycleContext(container: nil, request: request, docker: docker)
+    let context = LifecycleContext(container: nil, request: request, runtime: docker)
 
     try await executeLifecycleHooks([hook], context: context, phase: .preStart)
 
@@ -250,7 +250,7 @@ import Testing
 
     let request = ContainerRequest(image: "alpine:3")
     let docker = DockerClient()
-    let context = LifecycleContext(container: nil, request: request, docker: docker)
+    let context = LifecycleContext(container: nil, request: request, runtime: docker)
 
     try await executeLifecycleHooks([hook1, hook2, hook3], context: context, phase: .preStart)
 
@@ -266,7 +266,7 @@ import Testing
 
     let request = ContainerRequest(image: "alpine:3")
     let docker = DockerClient()
-    let context = LifecycleContext(container: nil, request: request, docker: docker)
+    let context = LifecycleContext(container: nil, request: request, runtime: docker)
 
     await #expect(throws: TestContainersError.self) {
         try await executeLifecycleHooks([hook], context: context, phase: .preStart)
@@ -286,7 +286,7 @@ import Testing
 
     let request = ContainerRequest(image: "alpine:3")
     let docker = DockerClient()
-    let context = LifecycleContext(container: nil, request: request, docker: docker)
+    let context = LifecycleContext(container: nil, request: request, runtime: docker)
 
     do {
         try await executeLifecycleHooks([hook1, hook2], context: context, phase: .preStart)
@@ -555,7 +555,7 @@ private actor TestState {
         .withCommand(["sleep", "30"])
         .onPostStart { context in
             let container = try context.requireContainer()
-            let result = try await context.docker.exec(
+            let result = try await context.runtime.exec(
                 id: await container.id,
                 command: ["echo", "Hello from hook"],
                 options: ExecOptions()

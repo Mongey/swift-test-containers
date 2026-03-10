@@ -65,7 +65,7 @@ private func dockerTestsEnabled() -> Bool {
         config: TestContainersCleanupConfig()
             .withAgeThreshold(600)  // 10 minutes
             .withCustomLabelFilter(testLabel, "true"),
-        docker: docker
+        runtime: docker
     )
 
     let result = try await cleanup.cleanup()
@@ -103,7 +103,7 @@ private func dockerTestsEnabled() -> Bool {
         config: TestContainersCleanupConfig()
             .withAgeThreshold(1)  // 1 second
             .withCustomLabelFilter(testLabel, "true"),
-        docker: docker
+        runtime: docker
     )
 
     let result = try await cleanup.cleanup()
@@ -145,7 +145,7 @@ private func dockerTestsEnabled() -> Bool {
             .withAgeThreshold(1)
             .withCustomLabelFilter(testLabel, "true")
             .withDryRun(true),
-        docker: docker
+        runtime: docker
     )
 
     let result = try await cleanup.cleanup()
@@ -200,7 +200,7 @@ private func dockerTestsEnabled() -> Bool {
         config: TestContainersCleanupConfig()
             .withAgeThreshold(1)
             .withCustomLabelFilter(testLabel, "true"),
-        docker: docker
+        runtime: docker
     )
 
     let result = try await cleanup.cleanup(sessionId: sessionId1)
@@ -246,7 +246,7 @@ private func dockerTestsEnabled() -> Bool {
         config: TestContainersCleanupConfig()
             .withAgeThreshold(1)
             .withCustomLabelFilter(testLabel, "true"),
-        docker: docker
+        runtime: docker
     )
 
     let orphaned = try await cleanup.listOrphanedContainers()
@@ -293,7 +293,7 @@ private func dockerTestsEnabled() -> Bool {
         config: TestContainersCleanupConfig()
             .withAgeThreshold(1)
             .withCustomLabelFilter(testLabel, "true"),
-        docker: docker
+        runtime: docker
     )
 
     let result = try await cleanup.cleanup()
@@ -322,7 +322,7 @@ private func dockerTestsEnabled() -> Bool {
     let id = try await docker.runContainer(request)
 
     // Remove using cleanup actor
-    let cleanup = TestContainersCleanup(docker: docker)
+    let cleanup = TestContainersCleanup(runtime: docker)
     try await cleanup.removeContainer(id)
 
     // Verify container was removed
@@ -382,7 +382,7 @@ private func dockerTestsEnabled() -> Bool {
             .withAgeThreshold(1)
             .withCustomLabelFilter(testLabel, "true")
             .withVerbose(true),
-        docker: docker
+        runtime: docker
     )
 
     // Cleanup should complete (verbose output goes to stdout)

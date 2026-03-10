@@ -183,12 +183,12 @@ public struct MinioContainer: Sendable, Hashable {
 public struct RunningMinioContainer: Sendable {
     private let container: Container
     private let config: MinioContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: MinioContainer, docker: DockerClient) {
+    internal init(container: Container, config: MinioContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the S3 API endpoint URL (e.g., `http://127.0.0.1:49152`).
@@ -241,7 +241,7 @@ public struct RunningMinioContainer: Sendable {
     /// - Parameter command: Command and arguments to execute
     /// - Returns: ExecResult with exit code, stdout, and stderr
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic Container for advanced operations.
@@ -275,27 +275,27 @@ public struct RunningMinioContainer: Sendable {
 /// ```
 public func withMinioContainer<T>(
     _ config: MinioContainer = MinioContainer(),
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningMinioContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = config.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let minioContainer = RunningMinioContainer(
             container: container,
             config: config,
-            docker: docker
+            runtime: runtime
         )
 
         // Create initial buckets if specified
         for bucket in config.buckets {
             // Configure mc alias pointing to local MinIO
-            _ = try await docker.exec(
+            _ = try await runtime.exec(
                 id: container.id,
                 command: ["mc", "alias", "set", "local", "http://localhost:\(config.port)", config.accessKey, config.secretKey],
                 options: ExecOptions()
             )
             // Create the bucket
-            let result = try await docker.exec(
+            let result = try await runtime.exec(
                 id: container.id,
                 command: ["mc", "mb", "local/\(bucket)"],
                 options: ExecOptions()

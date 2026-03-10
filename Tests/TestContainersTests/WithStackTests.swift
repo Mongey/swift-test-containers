@@ -24,7 +24,7 @@ import Testing
         .withContainer("app", ContainerRequest(image: "app-image:latest"))
         .withDependency("app", dependsOn: "db")
 
-    let result = try await withStack(stack, docker: docker) { running in
+    let result = try await withStack(stack, runtime: docker) { running in
         let db = try await running.container("db")
         let app = try await running.container("app")
 
@@ -88,7 +88,7 @@ import Testing
         .withDependency("app", dependsOn: "db")
 
     await #expect(throws: OperationError.self) {
-        try await withStack(stack, docker: docker) { _ in
+        try await withStack(stack, runtime: docker) { _ in
             throw OperationError.failed
         }
     }
@@ -123,7 +123,7 @@ import Testing
         .withDependency("app", dependsOn: "db")
 
     do {
-        _ = try await withStack(stack, docker: docker) { _ in
+        _ = try await withStack(stack, runtime: docker) { _ in
             Issue.record("Operation should not run when startup fails")
         }
         Issue.record("Expected startup failure")
@@ -169,7 +169,7 @@ import Testing
                 .withVolume("shared-data", mountedAt: "/data")
         )
 
-    let result = try await withStack(stack, docker: docker) { running in
+    let result = try await withStack(stack, runtime: docker) { running in
         let names = await running.volumeNames()
         #expect(names.sorted() == ["cache-vol", "shared-data"])
         return "ok"
@@ -213,7 +213,7 @@ import Testing
         .withContainer("db", ContainerRequest(image: "db-image:latest"))
 
     await #expect(throws: OperationError.self) {
-        try await withStack(stack, docker: docker) { _ in
+        try await withStack(stack, runtime: docker) { _ in
             throw OperationError.failed
         }
     }

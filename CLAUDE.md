@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-swift-test-containers is a Swift package for running Docker containers in tests, designed to work with `swift-testing` (`import Testing`). It uses [swift-subprocess](https://github.com/swiftlang/swift-subprocess) to execute `docker` CLI commands (Docker must be installed and on PATH).
+swift-test-containers is a Swift package for running containers in tests, designed to work with `swift-testing` (`import Testing`). It supports two container runtimes via the `ContainerRuntime` protocol:
+
+- **DockerClient** (default) — shells out to `docker` CLI via [swift-subprocess](https://github.com/swiftlang/swift-subprocess)
+- **AppleContainerClient** — shells out to Apple's `container` CLI (macOS 26+, Apple Silicon)
+
+Runtime selection: explicit parameter, `TESTCONTAINERS_RUNTIME=apple` env var, or `detectRuntime()`.
 
 ## Build & Test Commands
 
@@ -12,11 +17,14 @@ swift-test-containers is a Swift package for running Docker containers in tests,
 # Build
 swift build
 
-# Run all tests (unit tests only, no Docker required)
+# Run all tests (unit tests only, no Docker/container CLI required)
 swift test
 
 # Run tests with Docker integration tests enabled
 TESTCONTAINERS_RUN_DOCKER_TESTS=1 swift test
+
+# Run tests with Apple container integration tests enabled
+TESTCONTAINERS_RUN_APPLE_CONTAINER_TESTS=1 swift test
 
 # Run a specific test
 swift test --filter <TestName>
@@ -32,8 +40,11 @@ swift test --filter <TestFileName>
 1. **ContainerRequest** (`ContainerRequest.swift`) - Builder pattern struct for configuring containers (image, ports, env, labels, wait strategy)
 2. **withContainer()** (`WithContainer.swift`) - Scoped lifecycle helper that creates, waits for readiness, runs operation, and cleans up
 3. **Container** (`Container.swift`) - Actor providing runtime access (hostPort, endpoint, logs, terminate)
-4. **DockerClient** (`DockerClient.swift`) - Sendable struct that executes `docker` CLI commands via swift-subprocess
-5. **ProcessRunner** (`ProcessRunner.swift`) - Thin wrapper around swift-subprocess for executing shell commands
+4. **ContainerRuntime** (`ContainerRuntime.swift`) - Protocol abstracting container backends (~25 methods)
+5. **DockerClient** (`DockerClient.swift`) - `ContainerRuntime` implementation using `docker` CLI
+6. **AppleContainerClient** (`AppleContainerClient.swift`) - `ContainerRuntime` implementation using Apple's `container` CLI
+7. **RuntimeDetection** (`RuntimeDetection.swift`) - `detectRuntime()` selects runtime from explicit parameter, env var, or default
+8. **ProcessRunner** (`ProcessRunner.swift`) - Thin wrapper around swift-subprocess for executing shell commands
 
 ### Wait Strategy Pattern
 
@@ -57,13 +68,15 @@ Wait logic is executed in `Container.waitUntilReady()` using `Waiter.wait()` whi
 ### Key Patterns
 
 - **Builder pattern**: All configuration uses `func withX() -> Self` methods returning copies
-- **Sendable types**: `Container` is an actor; `DockerClient` and `ProcessRunner` are Sendable structs
+- **Sendable types**: `Container` is an actor; `DockerClient`, `AppleContainerClient`, and `ProcessRunner` are Sendable structs
+- **Runtime abstraction**: All public APIs accept `runtime: any ContainerRuntime` defaulting to `DockerClient()`
 - **Scoped resources**: `withContainer()` ensures cleanup on success, error, and cancellation
 
 ## Test Organization
 
-- Unit tests: Always run, test configuration and logic without Docker
+- Unit tests: Always run, test configuration and logic without Docker or container CLI
 - Docker integration tests: Gated by `TESTCONTAINERS_RUN_DOCKER_TESTS=1` environment variable
+- Apple container integration tests: Gated by `TESTCONTAINERS_RUN_APPLE_CONTAINER_TESTS=1` environment variable
 - Network-dependent tests: Use `@Test(.disabled(...))` trait to skip by default
 
 ## Feature Tracking

@@ -7,7 +7,7 @@ import Testing
 @Test func containerState_initiallyCreated_forCreatePath() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     let state = await container.currentState
     #expect(state == .created)
@@ -18,7 +18,7 @@ import Testing
 @Test func containerState_initiallyRunning_forRunPath() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker)
+    let container = Container(id: "fake-id", request: request, runtime: docker)
 
     let state = await container.currentState
     #expect(state == .running)
@@ -31,7 +31,7 @@ import Testing
 @Test func containerStart_fromCreated_transitionsToRunning() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
 
@@ -44,7 +44,7 @@ import Testing
 @Test func containerStart_fromStopped_transitionsToRunning() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.stop()
@@ -57,7 +57,7 @@ import Testing
 @Test func containerStart_fromRunning_isIdempotent() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.start() // Should not throw
@@ -69,7 +69,7 @@ import Testing
 @Test func containerStart_fromTerminated_throws() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.terminate()
@@ -84,7 +84,7 @@ import Testing
 @Test func containerStop_fromRunning_transitionsToStopped() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.stop()
@@ -98,7 +98,7 @@ import Testing
 @Test func containerStop_fromStopped_isIdempotent() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.stop()
@@ -111,7 +111,7 @@ import Testing
 @Test func containerStop_fromCreated_transitionsToStopped() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.stop()
 
@@ -122,7 +122,7 @@ import Testing
 @Test func containerStop_fromTerminated_throws() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.terminate()
@@ -137,7 +137,7 @@ import Testing
 @Test func containerRestart_fromRunning_transitionsToRunning() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.restart()
@@ -149,7 +149,7 @@ import Testing
 @Test func containerRestart_fromTerminated_throws() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.terminate()
@@ -164,7 +164,7 @@ import Testing
 @Test func containerTerminate_fromRunning_transitionsToTerminated() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.terminate()
@@ -176,7 +176,7 @@ import Testing
 @Test func containerTerminate_fromCreated_transitionsToTerminated() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.terminate()
 
@@ -187,7 +187,7 @@ import Testing
 @Test func containerTerminate_fromStopped_transitionsToTerminated() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.stop()
@@ -200,7 +200,7 @@ import Testing
 @Test func containerTerminate_fromTerminated_isIdempotent() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .created)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .created)
 
     try await container.start()
     try await container.terminate()
@@ -215,7 +215,7 @@ import Testing
 @Test func containerWaitUntilReady_isCallablePublicly() async throws {
     let (docker, _) = try makeMockDocker()
     let request = ContainerRequest(image: "alpine:3")
-    let container = Container(id: "fake-id", request: request, docker: docker, state: .running)
+    let container = Container(id: "fake-id", request: request, runtime: docker, state: .running)
 
     // Should compile and not throw with .none wait strategy
     try await container.waitUntilReady()

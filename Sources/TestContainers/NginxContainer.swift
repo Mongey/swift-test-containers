@@ -128,10 +128,10 @@ extension NginxContainer {
     ///   - operation: Async operation to run with the container
     /// - Returns: Result of the operation
     public func run<T>(
-        docker: DockerClient = DockerClient(),
+        runtime: any ContainerRuntime = DockerClient(),
         operation: @Sendable (RunningNginxContainer) async throws -> T
     ) async throws -> T {
-        try await withContainer(request, docker: docker) { container in
+        try await withContainer(request, runtime: runtime) { container in
             let nginx = RunningNginxContainer(container: container)
             return try await operation(nginx)
         }

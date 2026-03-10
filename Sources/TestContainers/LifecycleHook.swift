@@ -24,18 +24,18 @@ public struct LifecycleContext: Sendable {
     /// The container request configuration.
     public let request: ContainerRequest
 
-    /// The Docker client for executing commands.
-    public let docker: DockerClient
+    /// The container runtime for executing commands.
+    public let runtime: any ContainerRuntime
 
     /// Creates a new lifecycle context.
     /// - Parameters:
     ///   - container: The container (nil for PreStart phase)
     ///   - request: The container request configuration
-    ///   - docker: The Docker client
-    public init(container: Container?, request: ContainerRequest, docker: DockerClient) {
+    ///   - runtime: The container runtime
+    public init(container: Container?, request: ContainerRequest, runtime: any ContainerRuntime) {
         self.container = container
         self.request = request
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the container or throws if not available.

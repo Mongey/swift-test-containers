@@ -11,11 +11,14 @@ This document tracks what `swift-test-containers` supports today, and what's pla
 - [x] Scoped multi-container lifecycle: `withStack(_:_:)` with `ContainerStack` and `RunningStack`
 - [x] `Container` handle: `hostPort(_:)`, `endpoint(for:)`, `logs()`, `terminate()`
 
-**Docker backend**
-- [x] Docker CLI runner (shells out to `docker`)
-- [x] Start container: `docker run -d ...`
-- [x] Stop/remove container: `docker rm -f`
-- [x] Port resolution: `docker port <id> <containerPort>`
+**Container runtimes**
+- [x] `ContainerRuntime` protocol - abstraction over container backends
+- [x] Docker CLI runner (shells out to `docker`) - `DockerClient`
+- [x] Apple `container` CLI runner (macOS 26+, Apple Silicon) - `AppleContainerClient`
+- [x] Runtime detection: `detectRuntime(preferred:)` with `TESTCONTAINERS_RUNTIME` env var support
+- [x] Start container: `docker run -d ...` / `container run -d ...`
+- [x] Stop/remove container: `docker rm -f` / `container delete --force`
+- [x] Port resolution: `docker port` / inspect JSON parsing
 
 **Wait strategies**
 - [x] `.none`
@@ -155,6 +158,24 @@ Pre-configured containers with typed APIs, connection strings, and sensible defa
 
 ## Implementation Notes
 
+### Runtime Abstraction
+
+All public APIs accept `runtime: any ContainerRuntime` (defaults to `DockerClient()`). Select a runtime via:
+
+```swift
+// Explicit parameter
+try await withContainer(request, runtime: AppleContainerClient()) { ... }
+
+// Environment variable: TESTCONTAINERS_RUNTIME=apple
+let runtime = detectRuntime()
+try await withContainer(request, runtime: runtime) { ... }
+```
+
+**Apple `container` CLI limitations** (throws `unsupportedByRuntime`):
+- `connectToNetwork` after container creation (attach networks at run time instead)
+- Directory copy from container is currently unsupported
+- File copy uses CLI emulation and does not preserve ownership/permissions metadata
+
 ### CLI vs SDK
 
 Features are categorized by implementation approach:
@@ -162,9 +183,10 @@ Features are categorized by implementation approach:
 | Approach | Features |
 |----------|----------|
 | **Docker CLI** (current) | exec, copy, inspect, networks, volumes, mounts, most wait strategies |
+| **Apple container CLI** (current) | Same feature set with CLI translation; some features emulated or unsupported |
 | **Docker SDK** (future) | Log streaming, advanced networking, image builds, attach/detach |
 
-The library will continue using Docker CLI for simplicity and zero dependencies. SDK features may be added later for advanced use cases.
+The library uses CLI backends for simplicity and zero dependencies. SDK features may be added later for advanced use cases.
 
 ### Reference Implementation
 
@@ -197,7 +219,12 @@ Feature design is informed by [testcontainers-go](https://github.com/testcontain
 8. ~~`PostgresContainer` with connection string helper~~ ✓
 9. ~~`RedisContainer` with connection string helper~~ ✓
 
+**Runtime Abstraction**
+10. ~~`ContainerRuntime` protocol~~ ✓
+11. ~~Apple `container` CLI support~~ ✓
+12. ~~Runtime detection (`detectRuntime()`)~~ ✓
+
 **Reliability**
-10. Improved diagnostics (logs on timeout)
-11. ~~Lifecycle hooks~~ ✓
-12. Label-based cleanup sweeper
+13. Improved diagnostics (logs on timeout)
+14. ~~Lifecycle hooks~~ ✓
+15. Label-based cleanup sweeper

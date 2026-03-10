@@ -177,12 +177,12 @@ public struct MemcachedContainer: Sendable, Hashable {
 public struct RunningMemcachedContainer: Sendable {
     private let container: Container
     private let config: MemcachedContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: MemcachedContainer, docker: DockerClient) {
+    internal init(container: Container, config: MemcachedContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the Memcached connection string.
@@ -212,7 +212,7 @@ public struct RunningMemcachedContainer: Sendable {
 
     /// Executes a command inside the container.
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic Container for advanced operations.
@@ -236,15 +236,15 @@ public struct RunningMemcachedContainer: Sendable {
 /// ```
 public func withMemcachedContainer<T>(
     _ config: MemcachedContainer,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningMemcachedContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = config.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let memcachedContainer = RunningMemcachedContainer(
             container: container,
             config: config,
-            docker: docker
+            runtime: runtime
         )
         return try await operation(memcachedContainer)
     }

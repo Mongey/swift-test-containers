@@ -1,15 +1,18 @@
 import Foundation
 
 /// Run a multi-container stack with scoped lifecycle management.
+///
+/// - Important: In the runtime abstraction release, the `docker:` parameter was
+///   renamed to `runtime:`.
 public func withStack<T>(
     _ stack: ContainerStack,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     logger: TCLogger = .null,
     operation: @Sendable (RunningStack) async throws -> T
 ) async throws -> T {
     try stack.validate()
 
-    if !(await docker.isAvailable()) {
+    if !(await runtime.isAvailable()) {
         throw TestContainersError.dockerNotAvailable(
             "`docker` CLI not found or Docker engine not running."
         )
@@ -19,20 +22,20 @@ public func withStack<T>(
     let shutdownOrder = Array(startupOrder.reversed())
     let networkInfo = try await prepareStackNetwork(
         stack: stack,
-        docker: docker,
+        runtime: runtime,
         hasContainers: !startupOrder.isEmpty
     )
 
     let volumeInfos = try await prepareStackVolumes(
         stack: stack,
-        docker: docker
+        runtime: runtime
     )
 
     let cleanupTracker = StackCleanupTracker(
         shutdownOrder: shutdownOrder,
         network: networkInfo,
         volumes: volumeInfos,
-        docker: docker
+        runtime: runtime
     )
 
     let dependencySignals = Dictionary(
@@ -41,7 +44,7 @@ public func withStack<T>(
 
     let startupTasks = makeStartupTasks(
         stack: stack,
-        docker: docker,
+        runtime: runtime,
         startupOrder: startupOrder,
         networkInfo: networkInfo,
         cleanupTracker: cleanupTracker,
@@ -61,7 +64,7 @@ public func withStack<T>(
                 network: networkInfo,
                 volumes: volumeInfos,
                 shutdownOrder: shutdownOrder,
-                docker: docker
+                runtime: runtime
             )
 
             let result = try await operation(runningStack)
@@ -86,7 +89,7 @@ public func withStack<T>(
 
 private func makeStartupTasks(
     stack: ContainerStack,
-    docker: DockerClient,
+    runtime: any ContainerRuntime,
     startupOrder: [String],
     networkInfo: StackNetworkInfo?,
     cleanupTracker: StackCleanupTracker,
@@ -127,8 +130,8 @@ private func makeStartupTasks(
                     attachStackNetwork(&request, networkName: networkName, alias: name)
                 }
 
-                let id = try await docker.runContainer(request)
-                let container = Container(id: id, request: request, docker: docker)
+                let id = try await runtime.runContainer(request)
+                let container = Container(id: id, request: request, runtime: runtime)
                 await cleanupTracker.register(container: container, name: name)
                 await signal.markStarted(container)
 
@@ -244,12 +247,12 @@ private func attachStackNetwork(
 
 private func prepareStackVolumes(
     stack: ContainerStack,
-    docker: DockerClient
+    runtime: any ContainerRuntime
 ) async throws -> [StackVolumeInfo] {
     var volumeInfos: [StackVolumeInfo] = []
 
     for (name, config) in stack.volumes.sorted(by: { $0.key < $1.key }) {
-        _ = try await docker.createVolume(name: name, config: config)
+        _ = try await runtime.createVolume(name: name, config: config)
         volumeInfos.append(StackVolumeInfo(name: name, removeOnTermination: true))
     }
 
@@ -258,7 +261,7 @@ private func prepareStackVolumes(
 
 private func prepareStackNetwork(
     stack: ContainerStack,
-    docker: DockerClient,
+    runtime: any ContainerRuntime,
     hasContainers: Bool
 ) async throws -> StackNetworkInfo? {
     guard hasContainers, let config = stack.network else {
@@ -273,7 +276,7 @@ private func prepareStackNetwork(
             networkName = "tc-stack-\(UUID().uuidString.prefix(8).lowercased())"
         }
 
-        let id = try await docker.createNetwork(
+        let id = try await runtime.createNetwork(
             name: networkName,
             driver: config.driver,
             internal: config.internal
@@ -288,7 +291,7 @@ private func prepareStackNetwork(
         )
     }
 
-    let exists = try await docker.networkExists(existingName)
+    let exists = try await runtime.networkExists(existingName)
     guard exists else {
         throw TestContainersError.invalidInput(
             "Configured stack network '\(existingName)' does not exist"
@@ -303,14 +306,14 @@ private actor StackCleanupTracker {
     private let shutdownOrder: [String]
     private let network: StackNetworkInfo?
     private let volumes: [StackVolumeInfo]
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
     private var didTerminate = false
 
-    init(shutdownOrder: [String], network: StackNetworkInfo?, volumes: [StackVolumeInfo], docker: DockerClient) {
+    init(shutdownOrder: [String], network: StackNetworkInfo?, volumes: [StackVolumeInfo], runtime: any ContainerRuntime) {
         self.shutdownOrder = shutdownOrder
         self.network = network
         self.volumes = volumes
-        self.docker = docker
+        self.runtime = runtime
     }
 
     func register(container: Container, name: String) {
@@ -331,11 +334,11 @@ private actor StackCleanupTracker {
         }
 
         if let network, network.removeOnTermination {
-            try? await docker.removeNetwork(id: network.id)
+            try? await runtime.removeNetwork(id: network.id)
         }
 
         for volume in volumes where volume.removeOnTermination {
-            try? await docker.removeVolume(name: volume.name)
+            try? await runtime.removeVolume(name: volume.name)
         }
     }
 }

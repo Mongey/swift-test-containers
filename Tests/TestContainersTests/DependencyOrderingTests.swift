@@ -60,7 +60,7 @@ import Testing
         .withContainer("app", ContainerRequest(image: "app-image:latest"))
         .withDependency("app", dependsOn: "db")
 
-    let names = try await withContainerGroup(group, docker: docker) { running in
+    let names = try await withContainerGroup(group, runtime: docker) { running in
         await running.containerNames().sorted()
     }
 
@@ -93,7 +93,7 @@ import Testing
         .withContainer("a", ContainerRequest(image: "a-image:latest"))
         .withContainer("b", ContainerRequest(image: "b-image:latest"))
 
-    _ = try await withStack(stack, docker: docker) { _ in
+    _ = try await withStack(stack, runtime: docker) { _ in
         true
     }
 
@@ -118,7 +118,7 @@ import Testing
         .withContainer("app", ContainerRequest(image: "app-image:latest"))
         .withDependency("app", dependsOn: "db", waitFor: .healthy)
 
-    _ = try await withStack(stack, docker: docker) { _ in
+    _ = try await withStack(stack, runtime: docker) { _ in
         true
     }
 

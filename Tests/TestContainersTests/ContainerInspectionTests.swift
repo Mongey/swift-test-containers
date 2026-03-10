@@ -642,7 +642,7 @@ import Testing
 
         // Verify network - IP may be empty on Docker Desktop for macOS
         // but network settings should be present
-        #expect(inspection.networkSettings.bridge != nil)
+        #expect(!inspection.networkSettings.networks.isEmpty)
 
         // Verify ports - should have at least one binding for 6379
         let redisPort = inspection.networkSettings.ports.first { $0.containerPort == 6379 }

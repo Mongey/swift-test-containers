@@ -20,7 +20,7 @@ private struct HealthCheckResponse: Decodable {
     let Status: String?
 }
 
-public struct DockerClient: Sendable {
+public struct DockerClient: ContainerRuntime, Sendable {
     private let httpClient: DockerHTTPClient?
     private let dockerPath: String
     private let runner: ProcessRunner
@@ -178,7 +178,7 @@ public struct DockerClient: Sendable {
 
     /// Authenticate to a Docker registry before pulling/running images.
     /// Kept for backward compatibility with existing callers.
-    func authenticateRegistry(_ auth: RegistryAuth, environment: inout [String: String]) async throws {
+    public func authenticateRegistry(_ auth: RegistryAuth, environment: inout [String: String]) async throws {
         // In the API model, auth is handled via X-Registry-Auth header on pull requests.
         // This method is now a no-op for .credentials and .systemDefault.
         // For .configFile, we preserve compatibility by setting the env var for CLI operations.
@@ -316,7 +316,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Container Operations
 
-    func runContainer(_ request: ContainerRequest) async throws -> String {
+    public func runContainer(_ request: ContainerRequest) async throws -> String {
         guard let httpClient else {
             // CLI fallback
             logger.info("Starting container", metadata: [
@@ -408,7 +408,7 @@ public struct DockerClient: Sendable {
     }
 
     /// Create a container without starting it.
-    func createContainer(_ request: ContainerRequest) async throws -> String {
+    public func createContainer(_ request: ContainerRequest) async throws -> String {
         guard let httpClient else {
             // CLI fallback
             try await handleImagePullPolicy(request)
@@ -456,7 +456,7 @@ public struct DockerClient: Sendable {
     }
 
     /// Start an existing container.
-    func startContainer(id: String) async throws {
+    public func startContainer(id: String) async throws {
         guard let httpClient else {
             _ = try await runDocker(["start", id])
             return
@@ -471,7 +471,7 @@ public struct DockerClient: Sendable {
     }
 
     /// Stop a running container gracefully.
-    func stopContainer(id: String, timeout: Duration) async throws {
+    public func stopContainer(id: String, timeout: Duration) async throws {
         guard let httpClient else {
             let seconds = Int(timeout.components.seconds)
             _ = try await runDocker(["stop", "--time", "\(seconds)", id])
@@ -532,7 +532,7 @@ public struct DockerClient: Sendable {
         }
     }
 
-    func removeContainer(id: String) async throws {
+    public func removeContainer(id: String) async throws {
         guard let httpClient else {
             logger.debug("Removing container", metadata: ["containerId": String(id.prefix(12))])
             _ = try await runDocker(["rm", "-f", id])
@@ -553,7 +553,7 @@ public struct DockerClient: Sendable {
     // MARK: - Log Operations
 
     /// Fetch the last N lines of container logs.
-    func logsTail(id: String, lines: Int) async throws -> String {
+    public func logsTail(id: String, lines: Int) async throws -> String {
         guard let httpClient else {
             let output = try await runDocker(Self.logsTailArgs(id: id, lines: lines))
             return output.stdout
@@ -575,7 +575,7 @@ public struct DockerClient: Sendable {
         ["logs", "--tail", "\(lines)", id]
     }
 
-    func logs(id: String) async throws -> String {
+    public func logs(id: String) async throws -> String {
         guard let httpClient else {
             let output = try await runDocker(["logs", id])
             return output.stdout
@@ -594,7 +594,7 @@ public struct DockerClient: Sendable {
     /// Get the host port for a given container port.
     ///
     /// Extracts the port mapping from the container's inspect data.
-    func port(id: String, containerPort: Int) async throws -> Int {
+    public func port(id: String, containerPort: Int) async throws -> Int {
         guard httpClient != nil else {
             // CLI fallback
             let output = try await runDocker(["port", id, "\(containerPort)"])
@@ -623,7 +623,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Exec Operations
 
-    func exec(id: String, command: [String]) async throws -> Int32 {
+    public func exec(id: String, command: [String]) async throws -> Int32 {
         guard let httpClient else {
             // CLI fallback
             let args = ["exec", id] + command
@@ -683,7 +683,7 @@ public struct DockerClient: Sendable {
     }
 
     /// Execute a command in a container with options.
-    func exec(id: String, command: [String], options: ExecOptions) async throws -> ExecResult {
+    public func exec(id: String, command: [String], options: ExecOptions) async throws -> ExecResult {
         guard let httpClient else {
             // CLI fallback
             var args = ["exec"]
@@ -784,7 +784,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Health Status
 
-    func healthStatus(id: String) async throws -> ContainerHealthStatus {
+    public func healthStatus(id: String) async throws -> ContainerHealthStatus {
         guard httpClient != nil else {
             // CLI fallback
             let output = try await runDocker(["inspect", "--format", "{{json .State.Health}}", id])
@@ -823,7 +823,7 @@ public struct DockerClient: Sendable {
     // MARK: - Network Operations
 
     /// Create a Docker network with explicit primitive options.
-    func createNetwork(name: String, driver: String = "bridge", internal: Bool = false) async throws -> String {
+    public func createNetwork(name: String, driver: String = "bridge", internal: Bool = false) async throws -> String {
         guard let httpClient else {
             var args = ["network", "create", "--driver", driver]
             if `internal` { args.append("--internal") }
@@ -851,7 +851,7 @@ public struct DockerClient: Sendable {
         return response.Id
     }
 
-    func createNetwork(_ request: NetworkRequest) async throws -> (id: String, name: String) {
+    public func createNetwork(_ request: NetworkRequest) async throws -> (id: String, name: String) {
         let networkName = request.name ?? "tc-network-\(UUID().uuidString.prefix(8).lowercased())"
 
         guard let httpClient else {
@@ -914,7 +914,7 @@ public struct DockerClient: Sendable {
         return (id: response.Id, name: networkName)
     }
 
-    func removeNetwork(id: String) async throws {
+    public func removeNetwork(id: String) async throws {
         guard let httpClient else {
             _ = try await runDocker(["network", "rm", id])
             return
@@ -928,7 +928,7 @@ public struct DockerClient: Sendable {
     }
 
     /// Connect a running container to a network.
-    func connectToNetwork(
+    public func connectToNetwork(
         containerId: String,
         networkName: String,
         aliases: [String] = [],
@@ -970,7 +970,7 @@ public struct DockerClient: Sendable {
         try httpClient.requireSuccess(status: status, body: body)
     }
 
-    func networkExists(_ nameOrID: String) async throws -> Bool {
+    public func networkExists(_ nameOrID: String) async throws -> Bool {
         guard let httpClient else {
             do {
                 let output = try await runner.run(executable: dockerPath, arguments: ["network", "inspect", nameOrID])
@@ -989,7 +989,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Volume Operations
 
-    func createVolume(name: String, config: VolumeConfig = VolumeConfig()) async throws -> String {
+    public func createVolume(name: String, config: VolumeConfig = VolumeConfig()) async throws -> String {
         guard let httpClient else {
             var args = ["volume", "create", "--driver", config.driver]
             for (key, value) in config.options.sorted(by: { $0.key < $1.key }) {
@@ -1010,7 +1010,7 @@ public struct DockerClient: Sendable {
         return name
     }
 
-    func removeVolume(name: String) async throws {
+    public func removeVolume(name: String) async throws {
         guard let httpClient else {
             _ = try await runDocker(["volume", "rm", "-f", name])
             return
@@ -1028,7 +1028,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Copy Operations (stays on CLI via ProcessRunner)
 
-    func copyToContainer(id: String, sourcePath: String, destinationPath: String) async throws {
+    public func copyToContainer(id: String, sourcePath: String, destinationPath: String) async throws {
         let fileManager = FileManager.default
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: sourcePath, isDirectory: &isDirectory) else {
@@ -1039,7 +1039,7 @@ public struct DockerClient: Sendable {
         _ = try await runDocker(["cp", sourcePath, target])
     }
 
-    func copyDataToContainer(id: String, data: Data, destinationPath: String) async throws {
+    public func copyDataToContainer(id: String, data: Data, destinationPath: String) async throws {
         let tempDir = FileManager.default.temporaryDirectory
         let tempFileName = "testcontainers-\(UUID().uuidString)"
         let tempFileURL = tempDir.appendingPathComponent(tempFileName)
@@ -1054,7 +1054,7 @@ public struct DockerClient: Sendable {
         }
     }
 
-    func copyFromContainer(
+    public func copyFromContainer(
         id: String,
         containerPath: String,
         hostPath: String,
@@ -1071,7 +1071,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Log Streaming (stays on CLI for streaming support)
 
-    func streamLogs(id: String, options: LogStreamOptions) -> AsyncThrowingStream<LogEntry, Error> {
+    public func streamLogs(id: String, options: LogStreamOptions) -> AsyncThrowingStream<LogEntry, Error> {
         var args = ["logs"]
         args.append(contentsOf: options.toDockerArgs())
         args.append(id)
@@ -1105,7 +1105,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Inspect Operations
 
-    func inspect(id: String) async throws -> ContainerInspection {
+    public func inspect(id: String) async throws -> ContainerInspection {
         guard let httpClient else {
             // CLI fallback
             let output = try await runDocker(["inspect", id])
@@ -1124,7 +1124,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Image Build Operations (stays on CLI via ProcessRunner)
 
-    func buildImage(_ config: ImageFromDockerfile, tag: String) async throws -> String {
+    public func buildImage(_ config: ImageFromDockerfile, tag: String) async throws -> String {
         let args = Self.buildImageArgs(config: config, tag: tag)
         let output = try await runner.run(executable: dockerPath, arguments: args)
 
@@ -1142,7 +1142,7 @@ public struct DockerClient: Sendable {
     }
 
     /// Remove an image by tag.
-    func removeImage(_ tag: String) async throws {
+    public func removeImage(_ tag: String) async throws {
         guard let httpClient else {
             _ = try? await runDocker(["rmi", "-f", tag])
             return
@@ -1183,7 +1183,7 @@ public struct DockerClient: Sendable {
 
     // MARK: - Container List Operations
 
-    func listContainers(labels: [String: String] = [:]) async throws -> [ContainerListItem] {
+    public func listContainers(labels: [String: String] = [:]) async throws -> [ContainerListItem] {
         guard let httpClient else {
             // CLI fallback
             let args = Self.listContainersArgs(labels: labels)
@@ -1212,7 +1212,7 @@ public struct DockerClient: Sendable {
         return apiItems.map { ContainerListItem(fromAPI: $0) }
     }
 
-    func findReusableContainer(hash: String) async throws -> ContainerListItem? {
+    public func findReusableContainer(hash: String) async throws -> ContainerListItem? {
         let containers = try await listContainers(labels: [
             ReuseLabels.enabled: "true",
             ReuseLabels.hash: hash,
@@ -1227,7 +1227,7 @@ public struct DockerClient: Sendable {
             .max { lhs, rhs in lhs.created < rhs.created }
     }
 
-    func removeContainers(ids: [String], force: Bool = true) async -> [String: Error?] {
+    public func removeContainers(ids: [String], force: Bool = true) async -> [String: Error?] {
         var results: [String: Error?] = [:]
 
         await withTaskGroup(of: (String, Error?).self) { group in

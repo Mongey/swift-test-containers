@@ -161,13 +161,13 @@ public struct VaultContainerRequest: Sendable, Hashable {
 public actor VaultContainer {
     private let container: Container
     private let config: VaultContainerRequest
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
     private let hostAddress: String
 
-    internal init(container: Container, config: VaultContainerRequest, docker: DockerClient) {
+    internal init(container: Container, config: VaultContainerRequest, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
         self.hostAddress = config.host
     }
 
@@ -230,7 +230,7 @@ public actor VaultContainer {
             ]
         )
 
-        let result = try await docker.exec(id: containerId, command: fullCommand, options: options)
+        let result = try await runtime.exec(id: containerId, command: fullCommand, options: options)
         return result.exitCode
     }
 }
@@ -259,12 +259,12 @@ public actor VaultContainer {
 /// ```
 public func withVaultContainer<T>(
     _ request: VaultContainerRequest,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (VaultContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = request.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
-        let vaultContainer = VaultContainer(container: container, config: request, docker: docker)
+    return try await withContainer(containerRequest, runtime: runtime) { container in
+        let vaultContainer = VaultContainer(container: container, config: request, runtime: runtime)
 
         // Execute init commands if any
         if !request.initCommands.isEmpty {

@@ -218,12 +218,12 @@ public struct RedisContainer: Sendable, Hashable {
 public struct RunningRedisContainer: Sendable {
     private let container: Container
     private let config: RedisContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: RedisContainer, docker: DockerClient) {
+    internal init(container: Container, config: RedisContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the Redis connection string.
@@ -272,7 +272,7 @@ public struct RunningRedisContainer: Sendable {
     /// - Parameter command: Command and arguments to execute
     /// - Returns: ExecResult with exit code, stdout, and stderr
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic Container for advanced operations.
@@ -303,15 +303,15 @@ public struct RunningRedisContainer: Sendable {
 /// ```
 public func withRedisContainer<T>(
     _ config: RedisContainer,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningRedisContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = config.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let redisContainer = RunningRedisContainer(
             container: container,
             config: config,
-            docker: docker
+            runtime: runtime
         )
         return try await operation(redisContainer)
     }

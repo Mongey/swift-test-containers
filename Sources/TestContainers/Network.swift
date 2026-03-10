@@ -5,16 +5,16 @@ public actor Network {
     public let name: String
     public let request: NetworkRequest
 
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    init(id: String, name: String, request: NetworkRequest, docker: DockerClient) {
+    init(id: String, name: String, request: NetworkRequest, runtime: any ContainerRuntime) {
         self.id = id
         self.name = name
         self.request = request
-        self.docker = docker
+        self.runtime = runtime
     }
 
     public func remove() async throws {
-        try await docker.removeNetwork(id: id)
+        try await runtime.removeNetwork(id: id)
     }
 }

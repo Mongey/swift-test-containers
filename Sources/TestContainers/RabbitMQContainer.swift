@@ -217,12 +217,12 @@ private extension CharacterSet {
 public struct RunningRabbitMQContainer: Sendable {
     private let container: Container
     private let config: RabbitMQContainer
-    private let docker: DockerClient
+    private let runtime: any ContainerRuntime
 
-    internal init(container: Container, config: RabbitMQContainer, docker: DockerClient) {
+    internal init(container: Container, config: RabbitMQContainer, runtime: any ContainerRuntime) {
         self.container = container
         self.config = config
-        self.docker = docker
+        self.runtime = runtime
     }
 
     /// Returns the AMQP connection URL.
@@ -309,7 +309,7 @@ public struct RunningRabbitMQContainer: Sendable {
     /// - Parameter command: Command and arguments to execute
     /// - Returns: ExecResult with exit code, stdout, and stderr
     public func exec(_ command: [String]) async throws -> ExecResult {
-        try await docker.exec(id: container.id, command: command, options: ExecOptions())
+        try await runtime.exec(id: container.id, command: command, options: ExecOptions())
     }
 
     /// Access underlying generic Container for advanced operations.
@@ -341,15 +341,15 @@ public struct RunningRabbitMQContainer: Sendable {
 /// ```
 public func withRabbitMQContainer<T>(
     _ config: RabbitMQContainer,
-    docker: DockerClient = DockerClient(),
+    runtime: any ContainerRuntime = DockerClient(),
     operation: @Sendable (RunningRabbitMQContainer) async throws -> T
 ) async throws -> T {
     let containerRequest = config.toContainerRequest()
-    return try await withContainer(containerRequest, docker: docker) { container in
+    return try await withContainer(containerRequest, runtime: runtime) { container in
         let rabbitmqContainer = RunningRabbitMQContainer(
             container: container,
             config: config,
-            docker: docker
+            runtime: runtime
         )
         return try await operation(rabbitmqContainer)
     }
