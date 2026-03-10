@@ -9,7 +9,7 @@ public struct ContainerInspection: Sendable, Equatable {
     public let config: ContainerConfig
     public let networkSettings: NetworkSettings
 
-    /// Parse container inspection from Docker JSON output.
+    /// Parse container inspection from Docker CLI JSON output (array format).
     ///
     /// - Parameter json: JSON string from `docker inspect` command
     /// - Returns: Parsed `ContainerInspection`
@@ -28,6 +28,19 @@ public struct ContainerInspection: Sendable, Equatable {
         }
 
         return inspection
+    }
+
+    /// Parse container inspection from Docker Engine API JSON response (single object).
+    ///
+    /// The API endpoint `GET /containers/{id}/json` returns a single object,
+    /// unlike the CLI which wraps it in an array.
+    ///
+    /// - Parameter data: Raw JSON data from the API response
+    /// - Returns: Parsed `ContainerInspection`
+    public static func parseFromAPI(data: Data) throws -> ContainerInspection {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom(decodeDockerDate)
+        return try decoder.decode(ContainerInspection.self, from: data)
     }
 }
 

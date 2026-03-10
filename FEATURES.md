@@ -142,6 +142,9 @@ Pre-configured containers with typed APIs, connection strings, and sensible defa
 - [x] `LocalStackContainer` (AWS services emulation) - LocalStack with service selection, region config, endpoint helpers, HTTP health check wait
 - [x] `MinioContainer` (S3-compatible storage) - MinIO with S3/console endpoint helpers, credential management, bucket creation, HTTP health check wait
 
+**Caching**
+- [x] `MemcachedContainer` - Memcached with connection string helper, memory/connection/thread configuration
+
 **Other services**
 - [x] `ElasticsearchContainer` / `OpenSearchContainer`
 - [x] `VaultContainer` - HashiCorp Vault for secrets management

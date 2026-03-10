@@ -139,4 +139,25 @@ public struct ContainerListItem: Sendable, Decodable, Equatable {
     public var createdDate: Date {
         Date(timeIntervalSince1970: TimeInterval(created))
     }
+
+    /// Create a ContainerListItem from a Docker Engine API container list response.
+    ///
+    /// The API format differs from CLI: Names is an array, Labels is a dictionary.
+    init(fromAPI item: APIContainerListItem) {
+        self.id = item.Id
+        // API returns names as ["/name1", "/name2"], CLI as "name1,name2"
+        self.names = item.Names.joined(separator: ",")
+        self.image = item.Image
+        self.created = item.Created
+        // Convert labels dict to comma-separated key=value string
+        if let labels = item.Labels, !labels.isEmpty {
+            self.labels = labels
+                .sorted(by: { $0.key < $1.key })
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ",")
+        } else {
+            self.labels = ""
+        }
+        self.state = item.State
+    }
 }

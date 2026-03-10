@@ -13,7 +13,7 @@ public struct ImageInspection: Sendable, Equatable {
     public let config: ImageConfig
     public let rootFS: ImageRootFS
 
-    /// Parse image inspection from Docker JSON output.
+    /// Parse image inspection from Docker CLI JSON output (array format).
     ///
     /// - Parameter json: JSON string from `docker image inspect` command
     /// - Returns: Parsed `ImageInspection`
@@ -32,6 +32,19 @@ public struct ImageInspection: Sendable, Equatable {
         }
 
         return inspection
+    }
+
+    /// Parse image inspection from Docker Engine API JSON response (single object).
+    ///
+    /// The API endpoint `GET /images/{name}/json` returns a single object,
+    /// unlike the CLI which wraps it in an array.
+    ///
+    /// - Parameter data: Raw JSON data from the API response
+    /// - Returns: Parsed `ImageInspection`
+    public static func parseFromAPI(data: Data) throws -> ImageInspection {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom(decodeDockerImageDate)
+        return try decoder.decode(ImageInspection.self, from: data)
     }
 }
 

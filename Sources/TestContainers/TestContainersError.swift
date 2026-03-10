@@ -108,6 +108,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
     case circularDependency(containers: [String])
     /// Docker network creation failed for stack startup.
     case networkCreationFailed(String)
+    /// Docker Engine API returned a non-success HTTP status code.
+    case apiError(statusCode: Int, message: String)
 
     public var description: String {
         switch self {
@@ -174,6 +176,8 @@ public enum TestContainersError: Error, CustomStringConvertible, Sendable {
             return "Circular dependency detected in stack: \(containers.sorted().joined(separator: ", "))"
         case let .networkCreationFailed(message):
             return "Failed to create stack network: \(message)"
+        case let .apiError(statusCode, message):
+            return "Docker API error (HTTP \(statusCode)): \(message)"
         }
     }
 }
