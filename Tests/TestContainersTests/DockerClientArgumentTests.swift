@@ -416,6 +416,40 @@ import Testing
     #expect(!argsText.contains("image\ninspect"))
 }
 
+@Test func dockerClient_runContainer_withDockerfile_buildsImageBeforeRun() async throws {
+    let fileManager = FileManager.default
+    let tempDir = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? fileManager.removeItem(at: tempDir) }
+
+    let argsFileURL = tempDir.appendingPathComponent("args.txt")
+    let scriptURL = try makeDockerMockScript(in: tempDir, argsFileURL: argsFileURL, trackAllCalls: true)
+
+    let dockerfile = ImageFromDockerfile(
+        dockerfilePath: "Dockerfile.test",
+        buildContext: "/tmp/docker-context"
+    )
+    .withBuildArg("APP_ENV", "test")
+    let request = ContainerRequest(imageFromDockerfile: dockerfile)
+        .withName("dockerfile-stack-app")
+
+    let docker = DockerClient(dockerPath: scriptURL.path)
+    let id = try await docker.runContainer(request)
+    #expect(id == "fake-container-id")
+
+    let argsText = try String(contentsOf: argsFileURL, encoding: .utf8)
+    let invocations = parseDockerInvocations(argsText)
+
+    #expect(invocations.count == 2)
+    let buildInvocation = try #require(invocations.first)
+    let runInvocation = try #require(invocations.dropFirst().first)
+    #expect(containsSequence(["build", "-t", request.image, "-f", "Dockerfile.test"], in: buildInvocation))
+    #expect(containsSequence(["--build-arg", "APP_ENV=test"], in: buildInvocation))
+    #expect(buildInvocation.last == "/tmp/docker-context")
+    #expect(containsSequence(["run", "-d", "--name", "dockerfile-stack-app"], in: runInvocation))
+    #expect(runInvocation.contains(request.image))
+}
+
 private func makeDockerMockScript(in tempDir: URL, argsFileURL: URL, trackAllCalls: Bool) throws -> URL {
     let scriptURL = tempDir.appendingPathComponent("docker-mock.sh")
     let script: String
@@ -423,7 +457,7 @@ private func makeDockerMockScript(in tempDir: URL, argsFileURL: URL, trackAllCal
         script = """
         #!/bin/sh
         printf '%s\\n' "$@" >> "\(argsFileURL.path)"
-        printf '---\\n' >> "\(argsFileURL.path)"
+        printf '%s\\n' '---' >> "\(argsFileURL.path)"
         echo "fake-container-id"
         """
     } else {
@@ -1155,6 +1189,17 @@ private func makeDockerMockScript(in tempDir: URL, argsFileURL: URL) throws -> U
     let args = argsText.split(separator: "\n").map(String.init)
 
     #expect(containsSequence(["volume", "rm", "-f", "test-vol"], in: args))
+}
+
+private func parseDockerInvocations(_ text: String) -> [[String]] {
+    text
+        .components(separatedBy: "\n---\n")
+        .map { block in
+            block
+                .split(whereSeparator: { $0.isNewline })
+                .map(String.init)
+        }
+        .filter { !$0.isEmpty }
 }
 
 private func containsSequence(_ sequence: [String], in array: [String]) -> Bool {
