@@ -121,14 +121,23 @@ struct ProcessRunner: Sendable {
         switch terminationStatus {
         case .exited(let code):
             exitCode = Int32(code)
-        case .unhandledException(let code):
-            exitCode = Int32(code)
+        default:
+            exitCode = Self.nonExitStatusCode(from: terminationStatus)
         }
         return CommandOutput(
             stdout: stdout ?? "",
             stderr: stderr ?? "",
             exitCode: exitCode
         )
+    }
+
+    private static func nonExitStatusCode(from terminationStatus: Subprocess.TerminationStatus) -> Int32 {
+        let description = String(describing: terminationStatus)
+        let digits = description
+            .split { !$0.isNumber }
+            .last
+            .flatMap { Int32($0) }
+        return digits ?? 1
     }
 
     /// Streams output from a process line by line.
@@ -144,41 +153,16 @@ struct ProcessRunner: Sendable {
         environment: [String: String] = [:]
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
+            let processState = RunningProcessState()
             let task = Task {
                 do {
-                    // Convert environment
-                    let env: Subprocess.Environment
-                    if environment.isEmpty {
-                        env = .inherit
-                    } else {
-                        var updates: [Subprocess.Environment.Key: String?] = [:]
-                        for (key, value) in environment {
-                            updates[Subprocess.Environment.Key(rawValue: key)!] = value
-                        }
-                        env = .inherit.updating(updates)
-                    }
-
-                    // Use Subprocess.run with streaming body closure
-                    // The body receives AsyncBufferSequence for stdout
-                    let _ = try await Subprocess.run(
-                        .name(executable),
-                        arguments: Arguments(arguments),
-                        environment: env,
-                        error: .combineWithOutput  // Combine stderr with stdout
-                    ) { execution, standardOutput in
-                        // Use built-in lines() method for line-by-line parsing
-                        for try await line in standardOutput.lines() {
-                            // Check for cancellation
-                            if Task.isCancelled {
-                                break
-                            }
-                            // Trim trailing whitespace (lines include line endings)
-                            let trimmed = line.trimmingCharacters(in: .newlines)
-                            continuation.yield(trimmed)
-                        }
-                        return 0 // Return value for the body closure
-                    }
-
+                    try await Self.streamLinesWithProcess(
+                        executable: executable,
+                        arguments: arguments,
+                        environment: environment,
+                        processState: processState,
+                        streamContinuation: continuation
+                    )
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -187,7 +171,129 @@ struct ProcessRunner: Sendable {
 
             continuation.onTermination = { @Sendable _ in
                 task.cancel()
+                processState.terminate()
             }
+        }
+    }
+
+    private static func streamLinesWithProcess(
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        processState: RunningProcessState,
+        streamContinuation: AsyncThrowingStream<String, Error>.Continuation
+    ) async throws {
+        try await withCheckedThrowingContinuation { (processContinuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global().async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: executable)
+                process.arguments = arguments
+
+                var processEnvironment = ProcessInfo.processInfo.environment
+                for (key, value) in environment {
+                    processEnvironment[key] = value
+                }
+                process.environment = processEnvironment
+
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                let lineBuffer = LineBuffer { line in
+                    streamContinuation.yield(line)
+                }
+
+                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                    lineBuffer.append(handle.availableData)
+                }
+                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                    lineBuffer.append(handle.availableData)
+                }
+
+                do {
+                    processState.set(process)
+                    try process.run()
+                    process.waitUntilExit()
+
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                    lineBuffer.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+                    lineBuffer.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+                    lineBuffer.flush()
+
+                    processState.clear(process)
+                    processContinuation.resume(returning: ())
+                } catch {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                    processState.clear(process)
+                    processContinuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+}
+
+private final class RunningProcessState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func set(_ process: Process) {
+        lock.withLock {
+            self.process = process
+        }
+    }
+
+    func clear(_ process: Process) {
+        lock.withLock {
+            if self.process === process {
+                self.process = nil
+            }
+        }
+    }
+
+    func terminate() {
+        lock.withLock {
+            process?.terminate()
+            process = nil
+        }
+    }
+}
+
+private final class LineBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private let yield: @Sendable (String) -> Void
+    private var pending = ""
+
+    init(yield: @escaping @Sendable (String) -> Void) {
+        self.yield = yield
+    }
+
+    func append(_ data: Data) {
+        guard !data.isEmpty,
+              let chunk = String(data: data, encoding: .utf8) else {
+            return
+        }
+
+        lock.withLock {
+            pending += chunk
+
+            let parts = pending.split(separator: "\n", omittingEmptySubsequences: false)
+            guard parts.count > 1 else { return }
+
+            for line in parts.dropLast() {
+                yield(String(line).trimmingCharacters(in: .newlines))
+            }
+            pending = String(parts.last ?? "")
+        }
+    }
+
+    func flush() {
+        lock.withLock {
+            guard !pending.isEmpty else { return }
+            yield(pending.trimmingCharacters(in: .newlines))
+            pending = ""
         }
     }
 }

@@ -328,6 +328,10 @@ public struct DockerClient: ContainerRuntime, Sendable {
             // Validate request
             try Self.validateRequest(request)
 
+            if let dockerfileConfig = request.imageFromDockerfile {
+                _ = try await buildImage(dockerfileConfig, tag: request.image)
+            }
+
             // Handle registry auth for CLI mode
             var environment: [String: String] = [:]
             if let auth = request.registryAuth {
